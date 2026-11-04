@@ -7,8 +7,9 @@
 <p align="center"><em>Every chat, floating above your work.</em></p>
 
 <p align="center">
-  A native macOS overlay that keeps one always-on-top bubble per chat provider — Telegram, Messenger,
-  Zalo, Discord, Slack, Instagram, Teams, or any web chat — with every account you own stacked inside it.
+  <strong>Chat heads for macOS</strong> — a native overlay that keeps one always-on-top bubble per chat
+  provider: Telegram, Messenger, Zalo, Discord, Slack, Instagram, Teams, or any web chat, with every
+  account you own stacked inside it.
 </p>
 
 <p align="center">
@@ -16,13 +17,14 @@
   <img src="https://img.shields.io/badge/swift-5-orange.svg" alt="Swift 5">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue.svg" alt="Licence: MIT"></a>
   <img src="https://img.shields.io/badge/telemetry-none-brightgreen.svg" alt="No telemetry">
-  <img src="https://github.com/OWNER/bublr/actions/workflows/ci.yml/badge.svg" alt="CI status">
+  <img src="https://github.com/nnnghia98/bublr/actions/workflows/ci.yml/badge.svg" alt="CI status">
 </p>
 
 ![The Bublr welcome window](docs/hero-welcome.png)
 
-Bublr is an AppKit + SwiftUI menu-bar agent (`LSUIElement`) — no Dock icon. Each bubble is a borderless panel
-that floats above other apps and follows you across Spaces. Each account inside a bubble is a **real,
+Bublr is a chat-head overlay for macOS: each conversation is a small bubble floating above your work, and
+you put it where you want it. It is an AppKit + SwiftUI menu-bar agent (`LSUIElement`) — no Dock icon — and
+each bubble is a borderless panel that follows you across Spaces. Each account inside a bubble is a **real,
 isolated browser session** against the provider's own web client, so you sign in through Telegram's QR
 code, Messenger's password form or Zalo's QR exactly as you would in a browser tab, and the provider you
 already trust keeps doing the talking.
@@ -74,6 +76,9 @@ Being explicit about what this is not saves everyone a pull request:
 - **Not a messaging client.** There is no custom UI for chats, no message database, no notifications
   pipeline. You are looking at the provider's page, which is the point: their features arrive when they
   ship them, not when this project catches up.
+- **Not Android chat heads.** "Chat heads" is the closest familiar name for the pattern, not a promise of
+  Android parity. Nothing here follows a notification around the screen: a bubble is a conversation you
+  place deliberately, and it stays there until you move it.
 - **Not a proxy or a scraper.** Bublr never intercepts, proxies or reads a login form, and never calls a
   private endpoint. If a provider ships a protocol change, nothing here needs to change.
 - **Not a Chromium wrapper.** WebKit is the only engine, which is why WhatsApp — whose web client requires
@@ -88,7 +93,7 @@ Requirements: **macOS 14 (Sonoma) or newer**, **Xcode 15 or newer**, and
 
 ```bash
 brew install xcodegen
-git clone https://github.com/OWNER/bublr.git
+git clone https://github.com/nnnghia98/bublr.git
 cd bublr
 make build
 make install     # copies Bublr.app to /Applications
