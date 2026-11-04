@@ -1,0 +1,74 @@
+name: Bug report
+description: Something in Bublr does not work as advertised
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do **not** paste passwords, session cookies, QR codes or phone numbers —
+        a screenshot with the account label blurred out is plenty.
+  - type: input
+    id: version
+    attributes:
+      label: Bublr version
+      description: Menu bar → About, or `defaults read /Applications/Bublr.app/Contents/Info.plist CFBundleShortVersionString`
+      placeholder: "1.2"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "macOS 15.1 (24B83)"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - Telegram
+        - Messenger
+        - Zalo
+        - Discord
+        - Slack
+        - Instagram
+        - Teams
+        - Custom URL
+        - Not provider-specific
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch Bublr
+        2. Add a Telegram account
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Screenshots, a screen recording, or the output of `--selftest` / `--probe`.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I ran `make test` (or `--selftest`) and pasted the failing checks above
+          required: false
+        - label: This report contains no passwords, cookies, QR tokens or personal data
+          required: true

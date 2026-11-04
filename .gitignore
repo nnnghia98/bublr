@@ -1,0 +1,29 @@
+# Build output
+.build/
+build/
+DerivedData/
+dist/
+Video/out/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+
+# The Xcode project is generated from project.yml by xcodegen.
+# Run `make project` after cloning; do not commit it.
+Bublr.xcodeproj/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# SwiftPM
+.swiftpm/
+
+# Launch-film working tree (kept locally, not part of the app)
+Video/
