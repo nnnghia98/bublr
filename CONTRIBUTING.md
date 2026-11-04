@@ -97,7 +97,7 @@ Every merge into `main` also needs:
 - one approving review, with stale approvals dismissed when new commits land
 - an approval of the most recent push, so nobody merges code they pushed themselves
 - all review conversations resolved
-- the **Build & self-test** CI check green
+- the **Build & self-test** and **Conventions** CI checks green
 - a squash or merge commit — no rebase merges, no force pushes, no branch deletion
 
 Fork authors never need an invitation: their PRs are welcome, they just cannot merge them. To make
@@ -110,8 +110,74 @@ gh api -X PUT repos/nnnghia98/bublr/collaborators/USERNAME -f permission=push
 The rule lives in a repository ruleset, not in the workflow files. `Tools/merge-policy.sh` recreates
 it, which is the way to change the policy or reapply it after a repo transfer or branch rename.
 
-## Pull requests
+## Branches, commits and pull requests
+
+`main` takes squash merges, and the squash commit is built from the pull request **title and body**, not
+from the WIP commits on your branch. So the title is the commit message that ends up in the history —
+write it as one.
+
+### Commit and PR titles
+
+```
+<type>(<scope>): <subject>
+```
+
+- imperative subject (`add`, not `added` or `adds`), lower case after the colon, no trailing period,
+  at most 72 characters
+- optional body, wrapped at 72, explaining **why**
+- optional footers: `Closes #12`, `BREAKING CHANGE: <what breaks>`
+
+| Type | Use for | Changelog | SemVer |
+| --- | --- | --- | --- |
+| `feat` | new capability | Added | minor |
+| `fix` | user-visible bug | Fixed | patch |
+| `perf` | faster, same behaviour | Changed | patch |
+| `refactor` | internal reshape, same behaviour | — | — |
+| `test` | self-test and live tests | — | — |
+| `docs` | README, CONTRIBUTING | — | — |
+| `build` | `project.yml`, `Makefile`, `Support/Info.plist` | — | — |
+| `ci` | `.github/workflows` | — | — |
+| `chore` | repo housekeeping and releases | — | — |
+| `revert` | undoing an earlier commit | Fixed | patch |
+
+Scopes are the directories you already know: `provider`, `workspace`, `session`, `overlay`, `ui`, `app`,
+`selftest`, `build`, `ci`, `docs`, `deps`, `repo`. Use a provider name when the change is specific to one.
+
+```
+feat(provider): add Zalo QR sign-in
+fix(session): keep the unread count when a page title churns
+fix(overlay): clamp a dragged bubble back onto the active screen
+refactor(workspace): persist layout metrics separately from accounts
+```
+
+Mark a breaking change with `!` after the type or scope, and say what breaks in a footer:
+
+```
+fix(provider)!: drop WhatsApp, its page no longer loads in WebKit
+
+BREAKING CHANGE: WhatsApp is removed from ProviderSpec.all; accounts persisted
+for it are dropped on first launch.
+```
+
+### Branch names
+
+`<type>/<slug>` — the same type you will use in the PR title, then a lower-case kebab slug of two to five
+words. No dates, no usernames, no `wip`. Add the issue number when there is one.
+
+```
+feat/zalo-qr-signin
+fix/overlay-clamp-drag
+fix/142-overlay-clamp-drag
+chore/merge-policy
+```
+
+Branches are short-lived: one concern each, and they are deleted when the PR merges.
+
+### Opening the PR
 
 - One concern per PR. Small diffs get reviewed faster.
+- Title must pass the **Conventions** check. The branch name is only a warning, since forks often arrive
+  as `patch-1`.
 - Describe the user-visible change, how you tested it, and include a screenshot for UI work.
 - Note any provider that changed its page, and update the selectors in the same PR.
+- Keep the body honest: it becomes the squash commit body, so it is the part of this PR that outlives it.
