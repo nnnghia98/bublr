@@ -110,6 +110,9 @@ gh api -X PUT repos/nnnghia98/bublr/collaborators/USERNAME -f permission=push
 The rule lives in a repository ruleset, not in the workflow files. `Tools/merge-policy.sh` recreates
 it, which is the way to change the policy or reapply it after a repo transfer or branch rename.
 
+Agents and automation work under a stricter rule: they open the pull request and stop, and the owner
+merges it. [`AGENTS.md`](AGENTS.md) says why, and what counts as an explicit instruction to merge.
+
 ## Branches, commits and pull requests
 
 `main` takes squash merges, and the squash commit is built from the pull request **title and body**, not
