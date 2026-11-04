@@ -1,3 +1,9 @@
+<!--
+PR title: <type>(<scope>): <imperative subject>   e.g. feat(provider): add Zalo QR sign-in
+The title becomes the squash commit on main and is checked by the Conventions workflow.
+Types: feat fix perf refactor test docs build ci chore revert — see CONTRIBUTING.md.
+-->
+
 ## What does this change?
 
 <!-- One or two sentences. Link the issue if there is one: "Closes #12". -->
@@ -12,6 +18,7 @@
 
 ## Checklist
 
+- [ ] PR title follows `type(scope): subject` — it becomes the squash commit on `main`
 - [ ] `make test` is green
 - [ ] `make test-live` is green if this touches provider detection, `WebSession`, or `ProviderCatalog`
 - [ ] No credentials, cookies or provider responses are stored, logged or proxied

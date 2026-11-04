@@ -1,0 +1,55 @@
+name: Conventions
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: Conventions
+    runs-on: ubuntu-latest
+    steps:
+      # The squash commit on main is built from the PR title, so the title is the commit message
+      # that outlives the branch. Enforce it here instead of in a git hook, which contributors
+      # working from a fork never receive.
+      - name: "PR title follows type(scope) - subject"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -eu
+          types='feat|fix|perf|refactor|test|docs|build|ci|chore|revert'
+          if ! printf '%s' "$TITLE" | grep -Eq "^($types)(\([a-z0-9./-]+\))?!?: [a-z].{1,71}\$"; then
+            echo "::error::PR title must look like 'type(scope): imperative subject'."
+            echo "Got: $TITLE"
+            echo "Allowed types: feat fix perf refactor test docs build ci chore revert. See CONTRIBUTING.md."
+            exit 1
+          fi
+          echo "Title ok: $TITLE"
+
+      - name: PR title has no trailing period
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -eu
+          if printf '%s' "$TITLE" | grep -Eq '\.$'; then
+            echo "::error::PR title must not end with a period. Got: $TITLE"
+            exit 1
+          fi
+
+      # Advisory only: forks arrive with names we cannot control, so never fail the build on this.
+      - name: Branch name is <type>/<slug>
+        if: always()
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -eu
+          types='feat|fix|perf|refactor|test|docs|build|ci|chore|revert'
+          if printf '%s' "$BRANCH" | grep -Eq "^($types)/[a-z0-9]+(-[a-z0-9]+)*\$"; then
+            echo "Branch ok: $BRANCH"
+          else
+            echo "::warning::branch '$BRANCH' is off-convention; prefer <type>/<kebab-slug>, e.g. feat/zalo-qr-signin"
+          fi
