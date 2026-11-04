@@ -11,85 +11,84 @@
   Zalo, Discord, Slack, Instagram, Teams, or any web chat — with every account you own stacked inside it.
 </p>
 
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey.svg" alt="Platform: macOS 14 or newer">
+  <img src="https://img.shields.io/badge/swift-5-orange.svg" alt="Swift 5">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue.svg" alt="Licence: MIT"></a>
+  <img src="https://img.shields.io/badge/telemetry-none-brightgreen.svg" alt="No telemetry">
+  <img src="https://github.com/OWNER/bublr/actions/workflows/ci.yml/badge.svg" alt="CI status">
+</p>
+
 ![The Bublr welcome window](docs/hero-welcome.png)
 
-Bublr is an AppKit + SwiftUI agent app (no Dock icon). Each bubble is a borderless panel that floats above
-other apps and follows you across Spaces. Each account inside a bubble is a **real, isolated browser session**
-against the provider's own web client — Telegram's QR, Messenger's password form, Zalo's QR — so the provider
-you already trust does the talking.
+Bublr is an AppKit + SwiftUI menu-bar agent (`LSUIElement`) — no Dock icon. Each bubble is a borderless panel
+that floats above other apps and follows you across Spaces. Each account inside a bubble is a **real,
+isolated browser session** against the provider's own web client, so you sign in through Telegram's QR
+code, Messenger's password form or Zalo's QR exactly as you would in a browser tab, and the provider you
+already trust keeps doing the talking.
 
 | Provider bubble | Sign-in |
 | --- | --- |
 | ![Provider bubble with stacked accounts](docs/screenshot-bubble.png) | ![Sign-in surface with QR](docs/screenshot-signin.png) |
 
-*Screenshots use sample data from `--seed-demo` / `--render-ui`.*
+*Screenshots use sample data from `--seed-demo` / `--render-ui`; no real accounts.*
 
-## Why
+> **Status:** 0.1, early. The app is used daily by its author, and `make test` covers the parts that break
+> silently. There are no notarised binaries yet — build from source.
+
+## Contents
+
+- [Why Bublr](#why-bublr)
+- [Non-goals](#non-goals)
+- [Install](#install)
+- [Using it](#using-it)
+- [Providers](#providers)
+- [Privacy](#privacy)
+- [How it works](#how-it-works)
+- [Development](#development)
+- [Testing](#testing)
+- [Project layout](#project-layout)
+- [Contributing](#contributing)
+- [Licence](#licence)
+
+## Why Bublr
+
+**Every chat app wants to be a separate window you switch to.** If you live in more than one — work
+Telegram, a family group on Zalo, a studio channel on Messenger — you end up alt-tabbing between
+applications that all do the same thing. Bublr puts each one in a small panel that stays where you left it,
+over the work you are actually doing.
 
 - **Not a scraper, not a bridge.** No unofficial API, no bot token, no reverse-engineered protocol that
   breaks every other week. It is the provider's own web client in a web view — the same one you would open
   in a browser tab.
-- **One session per account.** Work and personal Telegram live in separate data stores, so signing out of
-  one never touches the other.
+- **One session per account.** Work and personal Telegram live in separate `WKWebsiteDataStore`s, so
+  signing out of one never touches the other, and two accounts of the same provider never see each other.
 - **Glanceable.** Collapsed to a circle, a bubble shows an unread badge; expanded, it lists your accounts;
-  opened, it is the real chat. Drag it anywhere, and it stays there.
+  opened, it is the real chat. Drag it anywhere, and it stays there across launches and Spaces.
 - **No credentials, ever.** See [Privacy](#privacy).
 
-## Privacy
+## Non-goals
 
-Bublr's design rule: **the only thing it may store is what a browser would have stored anyway.**
+Being explicit about what this is not saves everyone a pull request:
 
-| Stored | Where | When |
-| --- | --- | --- |
-| Bubble positions, sizes, collapsed state | `~/Library/Application Support/Bublr/state.json` | Always |
-| Account labels, provider, unread counts | same file | Always |
-| Provider cookies and local storage | `~/Library/WebKit/com.nnnghia.bublr/` | Only while **Keep me signed in** is on |
-
-- **No passwords, one-time codes or QR tokens.** Bublr never reads the login form, never proxies a
-  request and never stores a credential. There is no keychain item and no vault.
-- **Keep me signed in** is a per-account switch on the sign-in surface. Off means a private in-memory
-  session: the provider's cookies disappear when Bublr quits.
-- **Sign out and clear session** in an account's context menu erases the stored cookies immediately.
-- **No telemetry, no analytics, no update pings.** The only network traffic is the provider pages you
-  added (plus any Custom URL you configure).
-
-Full threat model and reporting process: [SECURITY.md](SECURITY.md).
-
-## Features
-
-- One always-on-top bubble per provider, collapsible to a 64 pt circle, draggable anywhere, position remembered.
-- Unlimited stacked accounts per provider, each with its own isolated `WKWebsiteDataStore`.
-- The provider's real sign-in: QR where the provider offers QR, password where it does not, with a method
-  switch that drives the provider's own page.
-- Automatic sign-in detection from the page's own DOM (with an "I've signed in" fallback), unread counts
-  from the page title.
-- Pop any account out as its own floating bubble, resize chats, dock it back.
-- Menu-bar controls and a global ⌥⌘B toggle. No Accessibility permission required.
-- Self-test harness (model, layout, real panels, live provider pages) and an offline UI renderer.
-
-## Providers
-
-| Provider | Sign-in | Notes |
-| --- | --- | --- |
-| **Telegram** | QR, phone number | Uses the K client (`web.telegram.org/a/`), which renders in WebKit |
-| **Messenger** | Email/phone + password | Full `messenger.com` client |
-| **Zalo** | QR | `chat.zalo.me` / `id.zalo.me` |
-| Discord | Password | Standard web client |
-| Slack | Password | Standard web client |
-| Instagram | Password | Standard web client |
-| Teams | Password | Standard web client |
-| Custom | Any URL | Give it a name and a URL |
-| ~~WhatsApp~~ | — | Not offered: `web.whatsapp.com` needs Chromium and serves a "download WhatsApp" page inside WebKit. Verified, not assumed. |
-
-Adding a provider is a `ProviderSpec` entry plus a live test — see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Not a messaging client.** There is no custom UI for chats, no message database, no notifications
+  pipeline. You are looking at the provider's page, which is the point: their features arrive when they
+  ship them, not when this project catches up.
+- **Not a proxy or a scraper.** Bublr never intercepts, proxies or reads a login form, and never calls a
+  private endpoint. If a provider ships a protocol change, nothing here needs to change.
+- **Not a Chromium wrapper.** WebKit is the only engine, which is why WhatsApp — whose web client requires
+  Chromium and serves a "download WhatsApp" page inside WebKit — is not offered.
+- **No telemetry, analytics or update pings.** Nothing phones home, because there is nothing to phone home
+  to.
 
 ## Install
 
-Requirements: **macOS 14 or newer**, **Xcode 15 or newer**, and [xcodegen](https://github.com/yonaskolb/XcodeGen).
+Requirements: **macOS 14 (Sonoma) or newer**, **Xcode 15 or newer**, and
+[xcodegen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 brew install xcodegen
-git clone https://github.com/<you>/bublr.git
+git clone https://github.com/OWNER/bublr.git
 cd bublr
 make build
 make install     # copies Bublr.app to /Applications
@@ -104,17 +103,79 @@ the menu bar.
 1. The welcome window lists providers. Pick one — its bubble appears at the right edge of the screen with the
    provider's own sign-in page already open.
 2. Sign in the way the provider allows (QR or password). Bublr notices by itself and drops you into the chat.
-3. **Add account** on a bubble stacks another account for that provider.
+3. **Add account** on a bubble stacks another account for that provider, with its own isolated session.
 4. Drag a bubble by its header (or by the circle when collapsed); collapse with the minus button; pop an
    account out from its context menu.
 
 | Action | How |
 | --- | --- |
-| Show / hide every bubble | ⌥⌘B or the menu bar item |
+| Show / hide every bubble | ⌥⌘B, or the menu bar item |
 | Add a provider bubble | Menu bar → *Add provider bubble* |
 | Start a new account | Menu bar → *New account…* |
 | Keep me signed in / sign out | Right-click an account in a bubble |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |
+| Settings | Menu bar → *Bublr Settings…* (⌘,) |
+
+## Providers
+
+| Provider | Sign-in | Notes |
+| --- | --- | --- |
+| **Telegram** | QR, phone number | Telegram Web A (`web.telegram.org/a/`), which renders in WebKit |
+| **Messenger** | Email/phone + password | Full `messenger.com` client |
+| **Zalo** | QR, password | `chat.zalo.me` / `id.zalo.me` |
+| **Discord** | QR, password | Standard web client |
+| **Slack** | Password | Standard web client |
+| **Instagram** | Password | Standard web client |
+| **Microsoft Teams** | Password | Standard web client |
+| **Custom** | Any URL | Give it a name and a URL; works with any provider whose web client suits WebKit |
+| ~~WhatsApp~~ | — | Not offered: `web.whatsapp.com` needs Chromium. Verified against the live page, not assumed |
+
+Adding a provider is a `ProviderSpec` entry plus a live test — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Privacy
+
+Bublr's design rule: **the only thing it may store is what a browser would have stored anyway.**
+
+| Stored | Where | When |
+| --- | --- | --- |
+| Bubble positions, sizes, collapsed state | `~/Library/Application Support/Bublr/state.json` | Always |
+| Account labels, provider, unread counts | same file | Always |
+| Provider cookies and local storage | `~/Library/WebKit/com.nnnghia.bublr/` | Only while **Keep me signed in** is on |
+
+- **No passwords, one-time codes or QR tokens.** Bublr never reads the login form, never proxies a request
+  and never stores a credential. There is no keychain item and no vault.
+- **Keep me signed in** is a per-account switch on the sign-in surface. Off means a private in-memory
+  session: the provider's cookies disappear when Bublr quits.
+- **Sign out and clear session** in an account's context menu erases the stored cookies immediately.
+- **No telemetry, no analytics, no update pings.** The only network traffic is the provider pages you added
+  (plus any Custom URL you configure).
+- **The state file holds no secrets**, and the self-test asserts that: it encodes the workspace and fails if
+  any password, token, cookie or credential key appears in it.
+
+Full threat model and reporting process: [SECURITY.md](SECURITY.md).
+
+## How it works
+
+```
+Welcome ──▶ ProviderBubble (one NSPanel per provider, always on top)
+                │
+                ├─ Account rows ──▶ SignInSurface ──▶ WebSession (WKWebView, one per account)
+                │                                          │
+                └─ ChatSurface ◀────────── the provider's own page, untouched
+                                                           │
+                              DOM selectors + title polling ─┘ (sign-in state, unread counts)
+```
+
+Three decisions explain most of the code:
+
+1. **The provider page is the source of truth.** Sign-in detection is a `ProviderSpec` selector or body
+   phrase injected into the page, and unread counts come from `document.title`. Nothing reads a field you
+   type into.
+2. **Sessions are keyed by account, not by provider.** Each account gets its own
+   `WKWebsiteDataStore(forIdentifier:)`, so isolation is a platform guarantee rather than bookkeeping.
+3. **The overlay is deliberately dumb.** Panels are borderless, non-activating `NSPanel`s that join every
+   Space and survive full-screen apps; position, size and collapsed state are persisted and restored
+   verbatim.
 
 ## Development
 
@@ -123,10 +184,11 @@ make build      # xcodegen + xcodebuild (Debug)
 make test       # self-test without live provider pages (what CI runs)
 make test-live  # also loads Telegram, Zalo and Messenger sign-in pages
 make render     # renders the real UI surfaces to /tmp/bublr-ui
+make run        # launch the app; extra flags via ARGS="--seed-demo"
 make release    # Release build zipped into dist/Bublr-<version>.zip
 ```
 
-`Bublr.xcodeproj` is generated from `project.yml`; it is not committed. Run `make project` after changing
+`Bublr.xcodeproj` is generated from `project.yml` and is not committed. Run `make project` after changing
 `project.yml` or adding source files.
 
 ### Debug fixtures
@@ -139,7 +201,34 @@ make release    # Release build zipped into dist/Bublr-<version>.zip
 | `--selftest` | Runs the whole check suite, writes `/tmp/bublr-selftest.json` |
 | `--render-ui <dir>` | Renders bubble, chat, sign-in and welcome surfaces to PNGs |
 
-### How it fits together
+### Environment
+
+| Variable | Effect |
+| --- | --- |
+| `BUBLR_SKIP_LIVE=1` | Skip the live provider page checks (what CI runs) |
+| `BUBLR_DIAG=1` | Log page diagnostics during sign-in |
+
+## Testing
+
+`make test` is a single binary, not a test bundle, because most of what goes wrong here only goes wrong
+with a real `NSPanel` on a real screen. It covers:
+
+- **Model and layout** — geometry for every account count, collapse and expand, unread parsing, provider
+  catalog invariants (every provider has an https home and an auth probe).
+- **Overlay contract** — the panel floats above normal windows, joins every Space, survives full-screen
+  apps, never activates the app, accepts typing, and is not a main window.
+- **Drag and drop** — the drag handle wins hit-testing over the header, a drag persists where it was
+  dropped and is not treated as a click, and a click releases the panel for later layout.
+- **Persistence and privacy** — state survives relaunch, and the encoded state file is asserted to contain
+  no password, token, cookie or credential keys.
+- **Live provider pages** — Telegram, Zalo and Messenger sign-in pages load and render inside the exact
+  `WKWebView` configuration the app uses. Skipped under `BUBLR_SKIP_LIVE=1` so CI stays independent of
+  provider uptime.
+
+Everything is runnable offline; `--render-ui` renders the real SwiftUI surfaces to PNGs without screen
+recording permission, which is how the screenshots above are produced.
+
+## Project layout
 
 ```
 Sources/
@@ -148,17 +237,23 @@ Sources/
   Overlay/  OverlayController (borderless NSPanel layout, drag, collapse, clamping)
   UI/       SwiftUI surfaces: bubble, sign-in, chat, welcome, design system
   App/      App delegate, menu bar, ⌥⌘B hotkey, self-test, offline renderer
+Tools/      window-probe (panel facts) · ocr-probe (reads text out of a rendered PNG)
+Support/    Info.plist (LSUIElement — no Dock icon)
+Resources/  App icon asset catalog
 ```
-
-The provider page is always the source of truth: detection is DOM selectors and body phrases injected into
-the page, never a credential read or an API call.
 
 ## Contributing
 
 Pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the dev loop, how to add a provider,
-and what `make test` expects. This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+and what `make test` expects. Please run `make test` before opening one; live provider checks are optional
+but appreciated for provider changes.
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Security issues go to
+[SECURITY.md](SECURITY.md), not the public issue tracker.
 
 ## Licence
 
-[MIT](LICENSE). Not affiliated with Telegram, Meta, Zalo, Discord, Slack, Instagram or Microsoft. Provider
-names and marks belong to their owners and are used only to identify the service you are signing in to.
+[MIT](LICENSE).
+
+Bublr is not affiliated with Telegram, Meta, Zalo, Discord, Slack, Instagram or Microsoft. Provider names
+and marks belong to their owners and are used only to identify the service you are signing in to.
