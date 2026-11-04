@@ -116,6 +116,28 @@ enum Metrics {
     static func signInHeight() -> CGFloat { 648 }
 }
 
+// MARK: - Motion
+
+/// Timing for the overlay's own transitions. Asymmetric on purpose: a bubble that expands slower than it
+/// collapses reads as deliberate, where an even 200ms both ways reads as laggy in one direction.
+///
+/// `duration(from:to:reduceMotion:)` is pure so the policy is testable without a window: the caller passes
+/// the accessibility flag rather than this type reading it, because `SelfTest` runs headless.
+enum Motion {
+    static let expandDuration: TimeInterval = 0.20
+    static let collapseDuration: TimeInterval = 0.14
+
+    /// Zero means "do not animate" — the caller sets the frame directly.
+    static func duration(from: CGSize, to: CGSize, reduceMotion: Bool) -> TimeInterval {
+        guard !reduceMotion else { return 0 }
+        let shrinking = to.width * to.height < from.width * from.height
+        return shrinking ? collapseDuration : expandDuration
+    }
+
+    /// The system setting behind System Settings → Accessibility → Display → Reduce motion.
+    static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}
+
 // MARK: - Snapshot
 
 struct WorkspaceSnapshot: Codable {
