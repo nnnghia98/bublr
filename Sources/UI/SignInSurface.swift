@@ -305,15 +305,21 @@ struct SignInSurface: View {
         workspace.clearUnread(accountID: pending.account.id)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
             workspace.finishSignIn(accountID: pending.account.id)
-            workspace.setDrill(pending.account.id, for: pending.account.provider)
+            if let owner = pending.bubbleID {
+                workspace.setDrill(pending.account.id, forBubble: owner)
+            } else {
+                workspace.setDrill(pending.account.id, for: pending.account.provider)
+            }
         }
     }
 
     private func cancel() {
         session?.purpose = .chatting
         workspace.cancelSignIn(accountID: pending.account.id)
-        if let state = workspace.bubble(for: pending.account.provider), state.collapsed {
-            workspace.setCollapsed(false, for: pending.account.provider)
+        let owner = pending.bubbleID.flatMap { workspace.bubble(id: $0) }
+            ?? workspace.bubble(for: pending.account.provider)
+        if let owner, owner.collapsed {
+            workspace.setCollapsed(false, forBubble: owner.id)
         }
     }
 }

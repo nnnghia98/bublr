@@ -104,6 +104,8 @@ the menu bar.
    provider's own sign-in page already open.
 2. Sign in the way the provider allows (QR or password). Bublr notices by itself and drops you into the chat.
 3. **Add account** on a bubble stacks another account for that provider, with its own isolated session.
+   **Duplicate bubble** (right-click the header, or the menu bar) opens a second head over the same
+   accounts when you want the same chats visible in two places.
 4. Drag a bubble by its header (or by the circle when collapsed); collapse with the minus button; pop an
    account out from its context menu.
 
@@ -111,6 +113,7 @@ the menu bar.
 | --- | --- |
 | Show / hide every bubble | ⌥⌘B, or the menu bar item |
 | Add a provider bubble | Menu bar → *Add provider bubble* |
+| Duplicate a bubble | Right-click the bubble header, or menu bar → *Duplicate provider bubble* |
 | Start a new account | Menu bar → *New account…* |
 | Keep me signed in / sign out | Right-click an account in a bubble |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |

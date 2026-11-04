@@ -3,7 +3,8 @@ import SwiftUI
 import Combine
 
 enum PanelKind: Hashable {
-    case provider(ProviderID)
+    /// One panel per head; a provider may own several.
+    case provider(UUID)
     case account(UUID)
 }
 
@@ -328,8 +329,9 @@ final class OverlayController {
         let panel = BubblePanel(kind: kind)
         let root: AnyView
         switch kind {
-        case .provider(let id):
-            root = AnyView(ProviderBubbleRoot(providerID: id))
+        case .provider(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID) else { return panel }
+            root = AnyView(ProviderBubbleRoot(providerID: state.provider, bubbleID: bubbleID))
         case .account(let id):
             root = AnyView(FloatingAccountRoot(accountID: id))
         }
@@ -368,12 +370,12 @@ final class OverlayController {
 
     private func handleEscape(_ panel: BubblePanel) {
         switch panel.kind {
-        case .provider(let provider):
-            guard let bubble = workspace.bubble(for: provider) else { return }
+        case .provider(let bubbleID):
+            guard let bubble = workspace.bubble(id: bubbleID) else { return }
             if bubble.drilledAccountID != nil {
-                workspace.setDrill(nil, for: provider)
+                workspace.setDrill(nil, forBubble: bubbleID)
             } else if !bubble.collapsed {
-                workspace.setCollapsed(true, for: provider)
+                workspace.setCollapsed(true, forBubble: bubbleID)
             }
         case .account(let id):
             guard let account = workspace.account(id: id) else { return }
@@ -385,10 +387,13 @@ final class OverlayController {
 
     private func targetLayout(for kind: PanelKind) -> (size: CGSize, origin: CGPoint)? {
         switch kind {
-        case .provider(let id):
-            guard let state = workspace.bubble(for: id) else { return nil }
-            let count = workspace.accounts(for: id).count
-            let signingIn = workspace.pendingSignIns.contains { $0.account.provider == id }
+        case .provider(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID) else { return nil }
+            let count = workspace.accounts(for: state.provider).count
+            // Only the head that opened the sign-in grows to the sign-in surface.
+            let signingIn = workspace.pendingSignIns.contains {
+                $0.account.provider == state.provider && ($0.bubbleID == nil || $0.bubbleID == bubbleID)
+            }
             let drilled = state.drilledAccountID != nil
             let size: CGSize
             if state.collapsed {
@@ -442,10 +447,10 @@ final class OverlayController {
 
     private func persist(_ rect: CGRect, for kind: PanelKind) {
         switch kind {
-        case .provider(let id):
-            guard let state = workspace.bubble(for: id) else { return }
+        case .provider(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID) else { return }
             if abs(state.origin.x - rect.origin.x) > 0.5 || abs(state.origin.y - rect.origin.y) > 0.5 {
-                workspace.setOrigin(rect.origin, for: id)
+                workspace.setOrigin(rect.origin, forBubble: bubbleID)
             }
         case .account(let id):
             workspace.setFloatingOrigin(rect.origin, for: id)

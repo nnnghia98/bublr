@@ -54,7 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         workspace.saveNow()
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.overlay.focus(.provider(provider))
+            guard let head = self?.workspace.bubble(for: provider) else { return }
+            self?.overlay.focus(.provider(head.id))
         }
     }
 
@@ -119,6 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         overlay.sync()
     }
 
+    func duplicateBubble(_ provider: ProviderID) {
+        guard let head = workspace.bubble(for: provider) else { return }
+        workspace.duplicateBubble(id: head.id)
+        showBubbles()
+        overlay.sync()
+    }
+
     func addAccount(_ provider: ProviderID, method: LoginMethod? = nil) {
         let account = workspace.addAccount(provider: provider, label: "")
         workspace.beginSignIn(account: account, method: method ?? provider.spec.defaultMethod)
@@ -126,12 +134,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         showBubbles()
         overlay.sync()
         closeWelcome()
-        if let bubble = workspace.bubble(for: provider), bubble.collapsed {
-            workspace.setCollapsed(false, for: provider)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.overlay.focus(.provider(provider))
+        if let bubble = workspace.bubble(for: provider) {
+            if bubble.collapsed { workspace.setCollapsed(false, forBubble: bubble.id) }
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.overlay.focus(.provider(bubble.id))
+            }
         }
     }
 
