@@ -81,6 +81,35 @@ Rules of thumb:
 - Keep user-visible strings in US English, with the provider's own language left alone (Zalo's page is
   Vietnamese; that's the provider's text, not ours).
 
+## Who can merge
+
+`main` is protected by the `main-protection` ruleset, so a pull request can only be merged by a
+**contributor** or an **admin**:
+
+| Who | Can merge? |
+| --- | --- |
+| Admins (repository owner) | Yes |
+| Contributors — collaborators with the write role | Yes, once the rules below pass |
+| Everyone else — fork authors, readers, triage | No. Open a PR and a maintainer merges it |
+
+Every merge into `main` also needs:
+
+- one approving review, with stale approvals dismissed when new commits land
+- an approval of the most recent push, so nobody merges code they pushed themselves
+- all review conversations resolved
+- the **Build & self-test** CI check green
+- a squash or merge commit — no rebase merges, no force pushes, no branch deletion
+
+Fork authors never need an invitation: their PRs are welcome, they just cannot merge them. To make
+someone a contributor, invite them with write access:
+
+```bash
+gh api -X PUT repos/nnnghia98/bublr/collaborators/USERNAME -f permission=push
+```
+
+The rule lives in a repository ruleset, not in the workflow files. `Tools/merge-policy.sh` recreates
+it, which is the way to change the policy or reapply it after a repo transfer or branch rename.
+
 ## Pull requests
 
 - One concern per PR. Small diffs get reviewed faster.
