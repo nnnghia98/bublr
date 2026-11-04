@@ -145,6 +145,26 @@ struct WorkspaceSnapshot: Codable {
     var bubbles: [BubbleState] = []
     var visible: Bool = true
     var hasOnboarded: Bool = false
+    /// Collapse every bubble when the user clicks outside them. On by default; see `Workspace`.
+    var collapseOnOutsideClick: Bool = true
+
+    private enum CodingKeys: String, CodingKey {
+        case accounts, bubbles, visible, hasOnboarded, collapseOnOutsideClick
+    }
+}
+
+extension WorkspaceSnapshot {
+    /// Hand-written so a state file from an older build still loads. Synthesised decoding calls
+    /// `decode(_:forKey:)`, which throws on a missing key — and `Workspace.load()` swallows that failure, so
+    /// adding a field would silently drop every account the user had. Every key is optional here instead.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accounts = try container.decodeIfPresent([Account].self, forKey: .accounts) ?? []
+        bubbles = try container.decodeIfPresent([BubbleState].self, forKey: .bubbles) ?? []
+        visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+        hasOnboarded = try container.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? false
+        collapseOnOutsideClick = try container.decodeIfPresent(Bool.self, forKey: .collapseOnOutsideClick) ?? true
+    }
 }
 
 // MARK: - Workspace
@@ -154,6 +174,9 @@ final class Workspace: ObservableObject {
     @Published private(set) var bubbles: [BubbleState] = []
     @Published var isVisible: Bool = true
     @Published var hasOnboarded: Bool = false
+    /// Whether a click outside every bubble collapses them all. `false` leaves the overlay exactly as the
+    /// user arranged it, for someone parking one chat beside their work all day.
+    @Published var collapseOnOutsideClick: Bool = true
 
     /// Accounts whose sign-in surface is currently open (not yet persisted with a session).
     @Published var pendingSignIns: [PendingSignIn] = []
@@ -276,6 +299,33 @@ final class Workspace: ObservableObject {
         bubbles[idx].collapsed = collapsed
         if collapsed { bubbles[idx].drilledAccountID = nil }
         scheduleSave()
+    }
+
+    func setCollapseOnOutsideClick(_ enabled: Bool) {
+        guard collapseOnOutsideClick != enabled else { return }
+        collapseOnOutsideClick = enabled
+        scheduleSave()
+    }
+
+    /// Collapses every head and every popped-out account at once — what a click outside the overlay does.
+    ///
+    /// Idempotent and reports whether anything moved, because a click that changes nothing must not write a
+    /// state file: the user's desktop is clicked constantly, and each of those clicks would otherwise queue
+    /// a save of the whole workspace.
+    @discardableResult
+    func collapseAll() -> Bool {
+        var changed = false
+        for index in bubbles.indices where !bubbles[index].collapsed {
+            bubbles[index].collapsed = true
+            bubbles[index].drilledAccountID = nil
+            changed = true
+        }
+        for index in accounts.indices where accounts[index].isFloating && !accounts[index].floatingCollapsed {
+            accounts[index].floatingCollapsed = true
+            changed = true
+        }
+        if changed { scheduleSave() }
+        return changed
     }
 
     func setCollapsed(_ collapsed: Bool, for provider: ProviderID) {
@@ -541,6 +591,7 @@ final class Workspace: ObservableObject {
         bubbles = snapshot.bubbles
         isVisible = snapshot.visible
         hasOnboarded = snapshot.hasOnboarded
+        collapseOnOutsideClick = snapshot.collapseOnOutsideClick
         // Recover any bubble that lost its geometry.
         for (index, state) in bubbles.enumerated() where state.origin == .zero {
             bubbles[index].origin = defaultOrigin(index: index)
@@ -553,7 +604,8 @@ final class Workspace: ObservableObject {
             accounts: accounts,
             bubbles: bubbles,
             visible: isVisible,
-            hasOnboarded: hasOnboarded
+            hasOnboarded: hasOnboarded,
+            collapseOnOutsideClick: collapseOnOutsideClick
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
