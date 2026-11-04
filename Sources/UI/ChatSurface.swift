@@ -8,6 +8,14 @@ struct ChatSurface: View {
     let accountID: UUID
     /// `nil` when the chat lives in its own popped-out bubble.
     let providerID: ProviderID?
+    /// The head showing this chat, so back/collapse/size land on that head and not on a sibling.
+    var bubbleID: UUID? = nil
+
+    private var headID: UUID? {
+        if let bubbleID { return bubbleID }
+        guard let providerID else { return nil }
+        return workspace.bubble(for: providerID)?.id
+    }
 
     @State private var session: WebSession?
 
@@ -49,7 +57,11 @@ struct ChatSurface: View {
         HStack(spacing: 8) {
             if providerID != nil {
                 BubbleIconButton(systemName: "chevron.left", size: 26, help: "Back to accounts") {
-                    workspace.setDrill(nil, for: account.provider)
+                    if let headID {
+                        workspace.setDrill(nil, forBubble: headID)
+                    } else {
+                        workspace.setDrill(nil, for: account.provider)
+                    }
                 }
             }
             DragRegion {
@@ -86,8 +98,10 @@ struct ChatSurface: View {
                 }
             }
             BubbleIconButton(systemName: "minus", help: "Collapse to a bubble") {
-                if let providerID {
-                    workspace.setCollapsed(true, for: providerID)
+                if let headID {
+                    workspace.setCollapsed(true, forBubble: headID)
+                } else if providerID != nil {
+                    workspace.setCollapsed(true, for: account.provider)
                 } else {
                     workspace.setFloatingCollapsed(true, for: account.id)
                 }
@@ -139,9 +153,9 @@ struct ChatSurface: View {
             WindowResizeHandle(
                 onResize: { _ in },
                 onResizeEnd: { size in
-                    if let providerID {
-                        workspace.setChatSize(size, for: providerID)
-                    } else {
+                    if let headID {
+                        workspace.setChatSize(size, forBubble: headID)
+                    } else if providerID == nil {
                         workspace.setFloatingSize(size, for: account.id)
                     }
                 }
@@ -164,7 +178,7 @@ struct ChatSurface: View {
             Button("Sign in again") {
                 let method = account.provider.spec.defaultMethod
                 sessions.existing(accountID: account.id)?.purpose = .signingIn
-                workspace.beginSignIn(account: account, method: method)
+                workspace.beginSignIn(account: account, method: method, bubbleID: headID)
             }
             .buttonStyle(.borderless)
             .font(.bubbleCaption(11))

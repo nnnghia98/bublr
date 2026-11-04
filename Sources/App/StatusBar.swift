@@ -53,6 +53,19 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         addBubble.submenu = addBubbleMenu
         menu.addItem(addBubble)
 
+        // A provider that already has a bubble can get a second head over the same accounts.
+        let duplicateBubble = NSMenuItem(title: "Duplicate provider bubble", action: nil, keyEquivalent: "")
+        let duplicateMenu = NSMenu()
+        for provider in ProviderCatalog.available where app.workspace.bubble(for: provider.id) != nil {
+            let item = NSMenuItem(title: provider.name, action: #selector(duplicateBubble(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = provider.id.rawValue
+            duplicateMenu.addItem(item)
+        }
+        duplicateBubble.submenu = duplicateMenu
+        duplicateBubble.isEnabled = !duplicateMenu.items.isEmpty
+        menu.addItem(duplicateBubble)
+
         let addAccount = NSMenuItem(title: "New account…", action: nil, keyEquivalent: "")
         let addAccountMenu = NSMenu()
         for provider in ProviderCatalog.available {
@@ -90,6 +103,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         } else {
             app.removeBubble(id)
         }
+    }
+
+    @objc private func duplicateBubble(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let id = ProviderID(rawValue: raw) else { return }
+        app.duplicateBubble(id)
     }
 
     @objc private func addAccount(_ sender: NSMenuItem) {

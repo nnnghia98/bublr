@@ -45,16 +45,48 @@ struct Account: Identifiable, Codable, Equatable {
 
 // MARK: - Provider bubble
 
-/// One floating bubble per provider. Its geometry lives here so the overlay can be restored
-/// exactly where the user left it.
+/// One floating head over a provider's account list. A provider can own several heads: they share the
+/// same accounts and the same unread count, but each keeps its own geometry, its own collapse state and
+/// its own drill target. Only one head at a time may be drilled into a given account, because an
+/// account has exactly one `WKWebView` and a view can only live in one window.
 struct BubbleState: Identifiable, Codable, Equatable {
-    var id: ProviderID
+    var id: UUID = UUID()
+    var provider: ProviderID
     var origin: CGPoint
     var collapsed: Bool = false
     var drilledAccountID: UUID?
     var width: CGFloat = Metrics.bubbleWidth
     var height: CGFloat = Metrics.expandedHeight(accountCount: 0)
     var chatSize: CGSize = CGSize(width: Metrics.chatWidth, height: Metrics.chatHeight)
+
+    init(provider: ProviderID, origin: CGPoint) {
+        self.provider = provider
+        self.origin = origin
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, provider, origin, collapsed, drilledAccountID, width, height, chatSize
+    }
+
+    /// State files written when a provider could own only one bubble stored the provider itself in `id`.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let provider = try container.decodeIfPresent(ProviderID.self, forKey: .provider) {
+            self.provider = provider
+            self.id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        } else {
+            self.provider = try container.decode(ProviderID.self, forKey: .id)
+            self.id = UUID()
+        }
+        origin = try container.decodeIfPresent(CGPoint.self, forKey: .origin) ?? .zero
+        collapsed = try container.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
+        drilledAccountID = try container.decodeIfPresent(UUID.self, forKey: .drilledAccountID)
+        width = try container.decodeIfPresent(CGFloat.self, forKey: .width) ?? Metrics.bubbleWidth
+        height = try container.decodeIfPresent(CGFloat.self, forKey: .height)
+            ?? Metrics.expandedHeight(accountCount: 0)
+        chatSize = try container.decodeIfPresent(CGSize.self, forKey: .chatSize)
+            ?? CGSize(width: Metrics.chatWidth, height: Metrics.chatHeight)
+    }
 }
 
 // MARK: - Metrics
@@ -112,6 +144,9 @@ final class Workspace: ObservableObject {
         var account: Account
         var method: LoginMethod
         var showsChooser: Bool
+        /// The head that opened the sign-in. Sibling heads stay out of the way, so one web view can
+        /// never be shown twice. `nil` means the provider's first head.
+        var bubbleID: UUID?
     }
 
     init(storeURL: URL? = nil) {
@@ -131,8 +166,18 @@ final class Workspace: ObservableObject {
         accounts.filter { $0.provider == provider }
     }
 
+    func bubbles(for provider: ProviderID) -> [BubbleState] {
+        bubbles.filter { $0.provider == provider }
+    }
+
+    func bubble(id: UUID) -> BubbleState? {
+        bubbles.first { $0.id == id }
+    }
+
+    /// The provider's first head. The menu bar, the welcome sheet and the sign-in flow act on a
+    /// provider rather than on a particular head, so they act here.
     func bubble(for provider: ProviderID) -> BubbleState? {
-        bubbles.first { $0.id == provider }
+        bubbles.first { $0.provider == provider }
     }
 
     func account(id: UUID) -> Account? {
@@ -159,58 +204,111 @@ final class Workspace: ObservableObject {
             if !isVisible { isVisible = true }
             return existing
         }
-        let index = bubbles.count
-        let origin = defaultOrigin(index: index)
-        let state = BubbleState(id: provider, origin: origin)
+        let state = BubbleState(provider: provider, origin: defaultOrigin(index: bubbles.count))
         bubbles.append(state)
         if !isVisible { isVisible = true }
         scheduleSave()
         return state
     }
 
-    func removeBubble(for provider: ProviderID) {
-        bubbles.removeAll { $0.id == provider }
-        accounts.removeAll { $0.provider == provider }
-        pendingSignIns.removeAll { $0.account.provider == provider }
+    /// A second head over the same accounts. It keeps the source geometry, nudged so it does not hide
+    /// the original, but starts without a drill: the account's web view stays with the head that owns it.
+    @discardableResult
+    func duplicateBubble(id: UUID) -> BubbleState? {
+        guard let source = bubble(id: id) else { return nil }
+        var twin = BubbleState(
+            provider: source.provider,
+            origin: CGPoint(x: source.origin.x + 28, y: source.origin.y - 28)
+        )
+        twin.collapsed = source.collapsed
+        twin.width = source.width
+        twin.height = source.height
+        twin.chatSize = source.chatSize
+        bubbles.append(twin)
+        if !isVisible { isVisible = true }
+        scheduleSave()
+        return twin
+    }
+
+    /// Removes one head. The provider keeps its accounts until its last head goes.
+    func removeBubble(id: UUID) {
+        guard let state = bubble(id: id) else { return }
+        bubbles.removeAll { $0.id == id }
+        if bubbles(for: state.provider).isEmpty { forget(provider: state.provider) }
         scheduleSave()
     }
 
-    func setCollapsed(_ collapsed: Bool, for provider: ProviderID) {
-        guard let idx = bubbles.firstIndex(where: { $0.id == provider }) else { return }
+    func removeBubble(for provider: ProviderID) {
+        bubbles.removeAll { $0.provider == provider }
+        forget(provider: provider)
+        scheduleSave()
+    }
+
+    private func forget(provider: ProviderID) {
+        accounts.removeAll { $0.provider == provider }
+        pendingSignIns.removeAll { $0.account.provider == provider }
+    }
+
+    func setCollapsed(_ collapsed: Bool, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         bubbles[idx].collapsed = collapsed
         if collapsed { bubbles[idx].drilledAccountID = nil }
         scheduleSave()
     }
 
-    func toggleCollapsed(for provider: ProviderID) {
-        guard let bubble = bubble(for: provider) else { return }
-        setCollapsed(!bubble.collapsed, for: provider)
+    func setCollapsed(_ collapsed: Bool, for provider: ProviderID) {
+        guard let head = bubble(for: provider) else { return }
+        setCollapsed(collapsed, forBubble: head.id)
     }
 
-    func setDrill(_ accountID: UUID?, for provider: ProviderID) {
-        guard let idx = bubbles.firstIndex(where: { $0.id == provider }) else { return }
+    func toggleCollapsed(forBubble bubbleID: UUID) {
+        guard let bubble = bubble(id: bubbleID) else { return }
+        setCollapsed(!bubble.collapsed, forBubble: bubbleID)
+    }
+
+    func toggleCollapsed(for provider: ProviderID) {
+        guard let bubble = bubble(for: provider) else { return }
+        setCollapsed(!bubble.collapsed, forBubble: bubble.id)
+    }
+
+    /// Drill is exclusive per account: the account has one web view, so a sibling head that was showing
+    /// the same account steps back to its list instead of stealing the view.
+    func setDrill(_ accountID: UUID?, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
+        if let accountID {
+            let provider = bubbles[idx].provider
+            for other in bubbles.indices where other != idx && bubbles[other].drilledAccountID == accountID
+                && bubbles[other].provider == provider {
+                bubbles[other].drilledAccountID = nil
+            }
+        }
         bubbles[idx].drilledAccountID = accountID
         if accountID != nil { bubbles[idx].collapsed = false }
         if let id = accountID { clearUnread(accountID: id) }
         scheduleSave()
     }
 
-    func setOrigin(_ origin: CGPoint, for provider: ProviderID) {
-        guard let idx = bubbles.firstIndex(where: { $0.id == provider }) else { return }
+    func setDrill(_ accountID: UUID?, for provider: ProviderID) {
+        guard let head = bubble(for: provider) else { return }
+        setDrill(accountID, forBubble: head.id)
+    }
+
+    func setOrigin(_ origin: CGPoint, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         guard abs(bubbles[idx].origin.x - origin.x) > 0.5 || abs(bubbles[idx].origin.y - origin.y) > 0.5 else { return }
         bubbles[idx].origin = origin
         scheduleSave()
     }
 
-    func setSize(_ size: CGSize, for provider: ProviderID) {
-        guard let idx = bubbles.firstIndex(where: { $0.id == provider }) else { return }
+    func setSize(_ size: CGSize, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         bubbles[idx].width = size.width
         bubbles[idx].height = size.height
         scheduleSave()
     }
 
-    func setChatSize(_ size: CGSize, for provider: ProviderID) {
-        guard let idx = bubbles.firstIndex(where: { $0.id == provider }) else { return }
+    func setChatSize(_ size: CGSize, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         guard abs(bubbles[idx].chatSize.width - size.width) > 0.5 || abs(bubbles[idx].chatSize.height - size.height) > 0.5 else { return }
         bubbles[idx].chatSize = size
         scheduleSave()
@@ -227,7 +325,7 @@ final class Workspace: ObservableObject {
             var s = state
             s.origin = defaultOrigin(index: index)
             s.width = Metrics.bubbleWidth
-            s.height = Metrics.expandedHeight(accountCount: accounts(for: state.id).count)
+            s.height = Metrics.expandedHeight(accountCount: accounts(for: state.provider).count)
             return s
         }
         for idx in accounts.indices {
@@ -357,8 +455,8 @@ final class Workspace: ObservableObject {
             let base = origin ?? defaultFloatingOrigin()
             accounts[idx].floatingOrigin = base
             accounts[idx].floatingSize = CGSize(width: Metrics.chatWidth, height: Metrics.chatHeight)
-            if let bubbleIdx = bubbles.firstIndex(where: { $0.id == accounts[idx].provider }),
-               bubbles[bubbleIdx].drilledAccountID == accountID {
+            // Every head showing this account has to let go of it: the popped-out panel owns the view now.
+            for bubbleIdx in bubbles.indices where bubbles[bubbleIdx].drilledAccountID == accountID {
                 bubbles[bubbleIdx].drilledAccountID = nil
             }
         }
@@ -389,9 +487,11 @@ final class Workspace: ObservableObject {
 
     // MARK: Pending sign-in
 
-    func beginSignIn(account: Account, method: LoginMethod) {
+    func beginSignIn(account: Account, method: LoginMethod, bubbleID: UUID? = nil) {
         pendingSignIns.removeAll { $0.account.id == account.id }
-        pendingSignIns.append(PendingSignIn(account: account, method: method, showsChooser: false))
+        pendingSignIns.append(
+            PendingSignIn(account: account, method: method, showsChooser: false, bubbleID: bubbleID)
+        )
     }
 
     func updatePendingSignIn(accountID: UUID, method: LoginMethod? = nil, showsChooser: Bool? = nil) {

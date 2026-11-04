@@ -94,6 +94,30 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         workspace.removeBubble(for: .messenger)
         check("removing a bubble removes its accounts", workspace.accounts(for: .messenger).isEmpty)
 
+        // One provider, several heads: same accounts and unread, but never the same web view.
+        let head = workspace.addBubble(for: .telegram)
+        let twin = workspace.duplicateBubble(id: head.id)
+        check("duplicate adds a second head", workspace.bubbles(for: .telegram).count == 2)
+        check("duplicate keeps the shared account list", workspace.accounts(for: .telegram).count == 1)
+        check("duplicate is offset from its source", twin.map { $0.origin != head.origin } ?? false)
+        check("duplicate starts un-drilled", twin?.drilledAccountID == nil)
+        if let twin {
+            workspace.setDrill(account.id, forBubble: head.id)
+            check("head drills its own account", workspace.bubble(id: head.id)?.drilledAccountID == account.id)
+            workspace.setDrill(account.id, forBubble: twin.id)
+            check("drilling in the twin releases the source head",
+                  workspace.bubble(id: head.id)?.drilledAccountID == nil
+                    && workspace.bubble(id: twin.id)?.drilledAccountID == account.id)
+            workspace.setCollapsed(true, forBubble: twin.id)
+            check("collapse is per head",
+                  workspace.bubble(id: twin.id)?.collapsed == true
+                    && workspace.bubble(id: head.id)?.collapsed == false)
+            workspace.removeBubble(id: twin.id)
+            check("removing a duplicate keeps the provider and its accounts",
+                  workspace.bubbles(for: .telegram).count == 1
+                    && workspace.accounts(for: .telegram).count == 1)
+        }
+
         let catalog = ProviderCatalog.all
         check("catalog covers Telegram, Messenger, Zalo",
               catalog.contains { $0.id == .telegram } && catalog.contains { $0.id == .messenger } && catalog.contains { $0.id == .zalo })
@@ -186,21 +210,57 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("collapsed bubble survives relaunch", reloaded.bubble(for: .zalo)?.collapsed == true)
         check("provider survives relaunch", reloaded.accounts.first?.provider == .zalo)
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+
+        // Older state files stored the provider itself in a bubble's `id`, because a provider could
+        // only ever own one bubble. Those files must still load.
+        let legacyURL = temporaryStoreURL("legacy")
+        let legacy = Workspace(storeURL: legacyURL)
+        legacy.addBubble(for: .discord)
+        legacy.addAccount(provider: .discord, label: "Gaming")
+        legacy.saveNow()
+        if let data = try? Data(contentsOf: legacyURL),
+           var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           var bubbles = root["bubbles"] as? [[String: Any]], !bubbles.isEmpty {
+            bubbles[0]["id"] = "discord"
+            bubbles[0].removeValue(forKey: "provider")
+            root["bubbles"] = bubbles
+            try? JSONSerialization.data(withJSONObject: root).write(to: legacyURL)
+        }
+        let migrated = Workspace(storeURL: legacyURL)
+        check("legacy bubble id migrates into a provider", migrated.bubbles(for: .discord).count == 1)
+        check("migrated bubble keeps its provider's accounts",
+              migrated.accounts(for: .discord).count == 1,
+              "\(migrated.accounts.count) accounts")
+        try? FileManager.default.removeItem(at: legacyURL.deletingLastPathComponent())
     }
 
     // MARK: Overlay
 
     private func overlayTests() {
         let workspace = Workspace(storeURL: temporaryStoreURL("overlay"))
-        workspace.addBubble(for: .telegram)
+        let head = workspace.addBubble(for: .telegram)
         workspace.addAccount(provider: .telegram, label: "QA")
         let sessions = WebSessionStore()
         let overlay = OverlayController(workspace: workspace, sessions: sessions)
         overlay.start()
         RunLoop.current.run(until: Date().addingTimeInterval(0.6))
 
-        let panel = overlay.panel(for: .provider(.telegram))
+        let panel = overlay.panel(for: .provider(head.id))
         check("overlay creates one panel per provider bubble", panel != nil)
+
+        // A duplicated head is a real panel of its own, over the same accounts.
+        if let twin = workspace.duplicateBubble(id: head.id) {
+            overlay.sync(animated: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            let twinPanel = overlay.panel(for: .provider(twin.id))
+            check("duplicate head gets its own panel", twinPanel != nil && twinPanel !== panel)
+            check("duplicate panel uses the bubble geometry",
+                  twinPanel.map { abs($0.frame.width - Metrics.bubbleWidth) < 1 } ?? false)
+            workspace.removeBubble(id: twin.id)
+            overlay.sync(animated: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            check("removing the duplicate closes its panel", overlay.panel(for: .provider(twin.id)) == nil)
+        }
         if let panel {
             check("bubble floats above normal windows", panel.level == .floating, "level=\(panel.level.rawValue)")
             check("bubble joins every Space", panel.collectionBehavior.contains(.canJoinAllSpaces))

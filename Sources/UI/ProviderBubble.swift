@@ -6,26 +6,42 @@ import AppKit
 struct ProviderBubbleRoot: View {
     @EnvironmentObject var workspace: Workspace
     let providerID: ProviderID
+    /// The head this panel shows. `nil` means the provider's first head, which is what older call
+    /// sites and the offline renderer expect.
+    var bubbleID: UUID? = nil
+
+    private var headID: UUID? { bubbleID ?? workspace.bubble(for: providerID)?.id }
+    private var state: BubbleState? { headID.flatMap { workspace.bubble(id: $0) } }
 
     var body: some View {
         if !providerID.spec.runsInWebKit {
             UnsupportedProviderCard(provider: providerID)
-        } else if let pending = workspace.pendingSignIns.first(where: { $0.account.provider == providerID }) {
+        } else if let pending = pendingSignIn {
             SignInSurface(pending: pending)
                 .id(pending.account.id)
-        } else if let state = workspace.bubble(for: providerID) {
+        } else if let state, let headID {
             if state.collapsed {
                 ProviderCollapsedBubble(provider: providerID, unread: workspace.unreadTotal(for: providerID)) {
-                    workspace.setCollapsed(false, for: providerID)
+                    workspace.setCollapsed(false, forBubble: headID)
                 }
             } else if let drill = state.drilledAccountID, workspace.account(id: drill) != nil {
-                ChatSurface(accountID: drill, providerID: providerID)
+                ChatSurface(accountID: drill, providerID: providerID, bubbleID: headID)
                     .id(drill)
             } else {
-                ProviderBubbleList(providerID: providerID)
+                ProviderBubbleList(providerID: providerID, bubbleID: headID)
             }
         } else {
             Color.clear
+        }
+    }
+
+    /// A sign-in belongs to the head that opened it; two heads must never show one web view.
+    private var pendingSignIn: Workspace.PendingSignIn? {
+        guard let headID else { return nil }
+        let primary = workspace.bubble(for: providerID)?.id
+        return workspace.pendingSignIns.first { pending in
+            guard pending.account.provider == providerID else { return false }
+            return (pending.bubbleID ?? primary) == headID
         }
     }
 }
@@ -141,7 +157,9 @@ struct ProviderBubbleList: View {
     @EnvironmentObject var workspace: Workspace
     @EnvironmentObject var sessions: WebSessionStore
     let providerID: ProviderID
+    var bubbleID: UUID? = nil
 
+    private var headID: UUID? { bubbleID ?? workspace.bubble(for: providerID)?.id }
     private var spec: ProviderSpec { providerID.spec }
     private var accounts: [Account] { workspace.accounts(for: providerID) }
     private var unread: Int { workspace.unreadTotal(for: providerID) }
@@ -179,7 +197,7 @@ struct ProviderBubbleList: View {
             }
             BubbleIconButton(systemName: "minus.circle", size: 26, help: "Collapse bubble") {
                 Feedback.tap()
-                workspace.setCollapsed(true, for: providerID)
+                if let headID { workspace.setCollapsed(true, forBubble: headID) }
             }
             BubbleIconButton(systemName: "plus.circle.fill", size: 26, help: "Add another account", tint: spec.tint) {
                 addAccount()
@@ -187,6 +205,12 @@ struct ProviderBubbleList: View {
         }
         .padding(.horizontal, 12)
         .frame(height: Metrics.header)
+        .contextMenu {
+            Button("Duplicate bubble") { duplicateHead() }
+            Button("Collapse bubble") {
+                if let headID { workspace.setCollapsed(true, forBubble: headID) }
+            }
+        }
     }
 
     private var subtitle: String {
@@ -299,17 +323,23 @@ struct ProviderBubbleList: View {
 
     private func addAccount() {
         let account = workspace.addAccount(provider: providerID, label: "")
-        workspace.beginSignIn(account: account, method: spec.defaultMethod)
+        workspace.beginSignIn(account: account, method: spec.defaultMethod, bubbleID: headID)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     private func open(_ account: Account) {
         if account.status == .needsSignIn {
-            workspace.beginSignIn(account: account, method: spec.defaultMethod)
+            workspace.beginSignIn(account: account, method: spec.defaultMethod, bubbleID: headID)
             NSApp.activate(ignoringOtherApps: true)
-        } else {
-            workspace.setDrill(account.id, for: providerID)
+        } else if let headID {
+            workspace.setDrill(account.id, forBubble: headID)
         }
+    }
+
+    /// A second head over the same accounts, for watching two chats side by side.
+    private func duplicateHead() {
+        guard let headID, workspace.duplicateBubble(id: headID) != nil else { return }
+        Feedback.tap()
     }
 
     /// Toggling always clears the local session, because the storage mode only applies to a new one.

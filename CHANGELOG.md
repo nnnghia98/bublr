@@ -4,6 +4,16 @@ All notable changes to Bublr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Duplicate a provider bubble.** Right-click a bubble's header, or use the menu bar's *Duplicate provider
+  bubble*, to open a second head over the same accounts — one collapsed on another Space while the other
+  watches unread, both signed in as the same logins. A duplicate shares the account list and unread count
+  with its source but keeps its own position, size and collapse state. Only one head can open a given
+  account's chat at a time, because an account has exactly one web view.
+
 ## [0.1] — 2026-11-04
 
 First public release.
