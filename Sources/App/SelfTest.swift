@@ -188,6 +188,19 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
               Metrics.expandedHeight(accountCount: 9) == Metrics.expandedHeight(accountCount: 5))
         check("collapsed bubble is a 64pt square", Metrics.collapsedSide == 64)
         check("chat is larger than the list", Metrics.chatWidth > Metrics.bubbleWidth && Metrics.chatHeight > 400)
+
+        let head = CGSize(width: Metrics.collapsedSide, height: Metrics.collapsedSide)
+        let panel = CGSize(width: Metrics.bubbleWidth, height: Metrics.expandedHeight(accountCount: 3))
+        check("expanding animates", Motion.duration(from: head, to: panel, reduceMotion: false) == Motion.expandDuration)
+        check("collapsing animates", Motion.duration(from: panel, to: head, reduceMotion: false) == Motion.collapseDuration)
+        check("collapse is quicker than expand", Motion.collapseDuration < Motion.expandDuration)
+        check("Reduce Motion skips the transition",
+              Motion.duration(from: head, to: panel, reduceMotion: true) == 0
+                && Motion.duration(from: panel, to: head, reduceMotion: true) == 0)
+        check("growth inside one direction still animates",
+              Motion.duration(from: panel,
+                             to: CGSize(width: panel.width, height: Metrics.expandedHeight(accountCount: 5)),
+                             reduceMotion: false) == Motion.expandDuration)
     }
 
     // MARK: Persistence

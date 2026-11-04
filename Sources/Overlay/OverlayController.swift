@@ -226,6 +226,18 @@ final class OverlayController {
     private var snapping: Set<PanelKind> = []
     /// Panels currently under the user's pointer. Layout stays out of their way until the drag ends.
     private var userDragging: Set<PanelKind> = []
+    /// A transition in flight: the frame it is growing into, and the moment it should have arrived.
+    ///
+    /// Neither possible completion signal can be trusted. `NSAnimationContext`'s completion handler never
+    /// fires when the app gets no real display link (self-tests, a sleeping display), and `NSWindow`
+    /// does not post `didMove` for a frame the animator set without moving the origin. So a transition is
+    /// retired by a deadline instead: while `now < deadline`, moves and layout passes that disagree with
+    /// `rect` are treated as frames of this animation, not as the user's choices.
+    private struct Transition {
+        let rect: CGRect
+        let deadline: Date
+    }
+    private var transitions: [PanelKind: Transition] = [:]
     private var isStarted = false
     private var isHiddenByUser = false
 
@@ -281,6 +293,7 @@ final class OverlayController {
         moveObservers.removeAll()
         panels.values.forEach { $0.close() }
         panels.removeAll()
+        transitions.removeAll()
         isStarted = false
     }
 
@@ -356,12 +369,19 @@ final class OverlayController {
             DispatchQueue.main.async { self?.handleEscape(panel) }
         }
 
-        // A drag ends with the window somewhere new; persist it so the overlay returns there.
+        // A drag ends with the window somewhere new; persist it so the overlay returns there. A transition
+        // also moves the window, frame by frame — those intermediate origins are not a user's choice.
         moveObservers[kind] = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
-            guard let self, let panel,
-                  !self.snapping.contains(kind), !self.userDragging.contains(kind) else { return }
+            guard let self, let panel else { return }
+            if let pending = self.runningTransition(kind) {
+                // Only the move that lands on the stored rect ends a transition. Anything in between is a
+                // frame the animation produced, and persisting it would store a size nobody chose.
+                guard self.sameRect(pending, panel.frame) else { return }
+                self.transitions.removeValue(forKey: kind)
+            }
+            guard !self.snapping.contains(kind), !self.userDragging.contains(kind) else { return }
             self.topAnchors[kind] = panel.frame.maxY
             self.persist(panel.frame, for: kind)
         }
@@ -435,14 +455,50 @@ final class OverlayController {
         let origin = CGPoint(x: target.origin.x, y: top - target.size.height)
         let rect = clampedRect(CGRect(origin: origin, size: target.size), preferred: origin)
 
+        // A pass that recomputes the target an in-flight transition is already heading for has nothing to
+        // do. Restarting it would cancel the animation and retarget it from a half-sized frame.
+        if let pending = runningTransition(kind), sameRect(pending, rect) { return }
+
         let sizeChanged = abs(current.size.width - rect.size.width) > 0.5 || abs(current.size.height - rect.size.height) > 0.5
         let moved = abs(current.origin.x - rect.origin.x) > 0.5 || abs(current.origin.y - rect.origin.y) > 0.5
 
         if sizeChanged || moved {
             topAnchors[kind] = rect.maxY
-            panel.setFrame(rect, display: true)
+            // Only a size change is worth animating: a clamp or a snap is a correction, not a transition,
+            // and dragging must track the pointer with no lag at all.
+            let duration = Motion.duration(from: current.size, to: rect.size, reduceMotion: Motion.reduceMotion)
+            if animated, sizeChanged, duration > 0 {
+                animate(kind: kind, panel: panel, to: rect, over: duration)
+            } else {
+                panel.setFrame(rect, display: true)
+            }
             persist(rect, for: kind)
         }
+    }
+
+    private func animate(kind: PanelKind, panel: BubblePanel, to rect: CGRect, over duration: TimeInterval) {
+        transitions[kind] = Transition(rect: rect, deadline: Date().addingTimeInterval(duration + 0.05))
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(rect, display: true)
+        }
+    }
+
+    /// The frame a transition is still growing into, or nil once its deadline has passed. Reading it is what
+    /// retires an expired transition, so no timer or completion handler is needed anywhere.
+    private func runningTransition(_ kind: PanelKind) -> CGRect? {
+        guard let transition = transitions[kind] else { return nil }
+        guard Date() < transition.deadline else {
+            transitions.removeValue(forKey: kind)
+            return nil
+        }
+        return transition.rect
+    }
+
+    private func sameRect(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.origin.x - b.origin.x) < 0.5 && abs(a.origin.y - b.origin.y) < 0.5
+            && abs(a.size.width - b.size.width) < 0.5 && abs(a.size.height - b.size.height) < 0.5
     }
 
     private func persist(_ rect: CGRect, for kind: PanelKind) {
