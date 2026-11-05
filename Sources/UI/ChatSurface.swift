@@ -82,6 +82,7 @@ struct ChatSurface: View {
                     Spacer(minLength: 0)
                 }
             }
+            zoomControls(account)
             BubbleIconButton(systemName: "arrow.clockwise", help: "Reload") {
                 session?.reload()
             }
@@ -109,6 +110,35 @@ struct ChatSurface: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 54)
+    }
+
+    /// Three controls rather than a stepper: the percentage in the middle is both the readout and the way
+    /// back to 100%, which is the move people actually want after overshooting.
+    private func zoomControls(_ account: Account) -> some View {
+        HStack(spacing: 2) {
+            BubbleIconButton(systemName: "minus.magnifyingglass", size: 24, help: "Zoom out") {
+                applyZoom(Zoom.smaller(account.zoom))
+            }
+            Button {
+                applyZoom(1)
+            } label: {
+                Text(Zoom.label(account.zoom))
+                    .font(.bubbleCaption(10).monospacedDigit())
+                    .foregroundStyle(account.zoom == 1 ? Color.secondary : Color.primary)
+                    .frame(minWidth: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Actual size")
+            BubbleIconButton(systemName: "plus.magnifyingglass", size: 24, help: "Zoom in") {
+                applyZoom(Zoom.bigger(account.zoom))
+            }
+        }
+    }
+
+    private func applyZoom(_ value: Double) {
+        workspace.setPageZoom(value, for: accountID)
+        session?.setZoom(value)
     }
 
     // MARK: Web area

@@ -218,6 +218,14 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("Reduce Motion skips the transition",
               Motion.duration(from: head, to: panel, reduceMotion: true) == 0
                 && Motion.duration(from: panel, to: head, reduceMotion: true) == 0)
+        check("zoom starts at actual size", Zoom.clamped(1) == 1 && Zoom.label(1) == "100%")
+        check("zoom clamps at both ends", Zoom.clamped(0.1) == Zoom.min && Zoom.clamped(9) == Zoom.max)
+        check("zoom steps by a tenth", Zoom.bigger(1) == 1.1 && Zoom.smaller(1) == 0.9)
+        check("a step does not accumulate float dust", Zoom.bigger(1.1) == 1.2 && Zoom.bigger(1.9) == 2.0)
+        check("zoom steps stop at the bounds", Zoom.bigger(Zoom.max) == Zoom.max && Zoom.smaller(Zoom.min) == Zoom.min)
+        check("zoom reads back as a percentage", Zoom.label(0.95) == "95%" && Zoom.label(Zoom.max) == "200%")
+        check("an account from an older file zooms at 100%",
+              Account(provider: .telegram, label: "Old").zoom == 1)
         check("growth inside one direction still animates",
               Motion.duration(from: panel,
                              to: CGSize(width: panel.width, height: Metrics.expandedHeight(accountCount: 5)),
