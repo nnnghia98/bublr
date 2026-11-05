@@ -98,9 +98,27 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // Which build is this? A menu-bar-only app with no About window cannot answer that otherwise, and
+        // "is this the latest?" has already cost a round of confusion caused by stale copies answering to the
+        // same bundle id.
+        let identity = NSMenuItem(title: buildIdentity, action: nil, keyEquivalent: "")
+        identity.isEnabled = false
+        menu.addItem(identity)
+
+        menu.addItem(.separator())
+
         let quit = NSMenuItem(title: "Quit Bublr", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
+    }
+
+    /// `Bublr 0.1 · 8c2404a`, or without the hash when built from Xcode rather than `make`.
+    private var buildIdentity: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "0"
+        let commit = (info?["BublrCommit"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        let dev = (info?["CFBundleIdentifier"] as? String ?? "").hasSuffix(".dev") ? " dev" : ""
+        return commit.isEmpty ? "Bublr \(version)\(dev)" : "Bublr \(version)\(dev) · \(commit)"
     }
 
     @objc private func toggleBubbles() { app.toggleBubbles() }

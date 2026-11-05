@@ -38,6 +38,13 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/../Frameworks"
+      # A Debug build must not answer to the installed app's identity. xcodebuild registers every bundle it
+      # produces with LaunchServices, so an identical bundle id means "Bublr" in Spotlight is a coin flip
+      # between the installed release and whatever `.build/` produced last. The state file is keyed by path,
+      # not bundle id, so both builds still share one workspace.
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.nnnghia.bublr.dev
     dependencies:
       - sdk: WebKit.framework
       - sdk: Carbon.framework
