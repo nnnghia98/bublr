@@ -30,6 +30,12 @@ struct Account: Identifiable, Codable, Equatable {
     var lastActivity: Date = Date()
     var customURL: String?
 
+    /// Page zoom for this account's chat, `nil` in a file written before zooming existed or before the user
+    /// touched it. Never stored outside `Zoom.min...Zoom.max`.
+    var pageZoom: Double?
+
+    var zoom: Double { Zoom.clamped(pageZoom ?? 1) }
+
     /// Opt-in session persistence. When false the provider's cookies live only in memory and are gone
     /// when Bublr quits. `nil` is an account from an older build, which behaved as `true`.
     /// Bublr itself never stores a password, a 2FA code or a QR token either way.
@@ -136,6 +142,39 @@ enum Motion {
 
     /// The system setting behind System Settings → Accessibility → Display → Reduce motion.
     static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+}
+
+// MARK: - Zoom
+
+/// The page zoom offered for a chat, and the arithmetic behind the controls. Pure, so the bounds and the
+/// step behaviour are testable without a web view.
+///
+/// The range stops at 0.5–2.0 rather than being unbounded: below half, a provider's own layout collapses —
+/// Telegram's sidebar overlaps the message pane, Messenger's composer clips — and past 2x the fixed
+/// toolbar and the panel frame no longer agree about what is on screen.
+enum Zoom {
+    static let min: Double = 0.5
+    static let max: Double = 2.0
+    static let step: Double = 0.1
+
+    static func clamped(_ value: Double) -> Double {
+        guard value.isFinite else { return 1 }
+        return Swift.min(Swift.max(value, min), max)
+    }
+
+    static func bigger(_ value: Double) -> Double { step(from: value, by: step) }
+
+    static func smaller(_ value: Double) -> Double { step(from: value, by: -step) }
+
+    /// Rounded to one decimal, so a step lands on 1.1 and not 1.1000000000000001 — that float dust would
+    /// otherwise reach the state file and make two identical zooms compare unequal.
+    private static func step(from value: Double, by delta: Double) -> Double {
+        clamped(((clamped(value) + delta) * 10).rounded() / 10)
+    }
+
+    static func label(_ value: Double) -> String {
+        "\(Int((clamped(value) * 100).rounded()))%"
+    }
 }
 
 // MARK: - Snapshot
@@ -298,6 +337,14 @@ final class Workspace: ObservableObject {
         guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         bubbles[idx].collapsed = collapsed
         if collapsed { bubbles[idx].drilledAccountID = nil }
+        scheduleSave()
+    }
+
+    func setPageZoom(_ zoom: Double, for accountID: UUID) {
+        guard let index = accounts.firstIndex(where: { $0.id == accountID }) else { return }
+        let clamped = Zoom.clamped(zoom)
+        guard accounts[index].zoom != clamped else { return }
+        accounts[index].pageZoom = clamped
         scheduleSave()
     }
 

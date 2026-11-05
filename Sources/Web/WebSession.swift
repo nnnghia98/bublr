@@ -42,6 +42,10 @@ final class WebSession: NSObject, ObservableObject {
     @Published var purpose: Purpose = .chatting
     @Published var authState: AuthState = .unknown
 
+    /// Current page zoom. Read from the account when the session is made, then owned here so the web view
+    /// and the toolbar label cannot disagree.
+    private(set) var pageZoom: Double = 1
+
     var onTitleChange: ((Int) -> Void)?
     var onSignedIn: (() -> Void)?
     var onSessionLost: (() -> Void)?
@@ -87,6 +91,9 @@ final class WebSession: NSObject, ObservableObject {
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = WebSession.userAgent
         webView.isInspectable = true
+        // Applied before the first load so a reopened chat never flashes at 100% and then snaps.
+        pageZoom = account.zoom
+        webView.pageZoom = account.zoom
 
         controller.add(WeakMessageHandler(self), name: "bublr")
 
@@ -117,6 +124,15 @@ final class WebSession: NSObject, ObservableObject {
         request.timeoutInterval = 45
         webView.load(request)
         displayHost = startURL.host ?? ""
+    }
+
+    /// `WKWebView.pageZoom` scales the provider's page without touching the panel frame, so zoom and the
+    /// window's own resize stay independent.
+    func setZoom(_ value: Double) {
+        let clamped = Zoom.clamped(value)
+        guard clamped != pageZoom else { return }
+        pageZoom = clamped
+        webView.pageZoom = clamped
     }
 
     func reload() {
