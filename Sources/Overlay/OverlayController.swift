@@ -3,8 +3,12 @@ import SwiftUI
 import Combine
 
 enum PanelKind: Hashable {
-    /// One panel per head; a provider may own several.
+    /// One panel per head; a provider may own several. Holds the collapsed circle or the account list.
     case provider(UUID)
+    /// The detail panel for a head: the chat of one account, or its sign-in page. Its frame is derived
+    /// from the head, never stored, which is what keeps it anchored.
+    case chat(UUID)
+    /// A popped-out account, standing on its own with no head to anchor to.
     case account(UUID)
 }
 
@@ -55,6 +59,11 @@ final class BubblePanel: NSPanel {
 
 extension Notification.Name {
     static let bublrEscape = Notification.Name("bublr.escape")
+    /// Posted by an edge handle while the pointer moves; `userInfo["size"]` is the frame it produced.
+    static let bublrResizeEnded = Notification.Name("bublr.resizeEnded")
+    /// A drag on a chat's title bar, which moves the head the chat is anchored to.
+    /// `userInfo["bubble"]` is the head, `userInfo["delta"]` an `NSSize` of the travel since the last post.
+    static let bublrMoveHead = Notification.Name("bublr.moveHead")
 }
 
 // MARK: - Drag handle
@@ -63,23 +72,30 @@ extension Notification.Name {
 /// A press that never moves is reported back as a click.
 struct WindowDragHandle: NSViewRepresentable {
     var onClick: (() -> Void)?
+    /// When set, dragging moves that head bubble rather than this panel: a chat is anchored to its head, so
+    /// dragging the chat means "move the pair". Its own frame is derived and would snap back otherwise.
+    var movesHead: UUID?
 
     func makeNSView(context: Context) -> DragHandleView {
         let view = DragHandleView()
         view.onClick = onClick
+        view.movesHead = movesHead
         return view
     }
 
     func updateNSView(_ nsView: DragHandleView, context: Context) {
         nsView.onClick = onClick
+        nsView.movesHead = movesHead
     }
 }
 
 final class DragHandleView: NSView {
     var onClick: (() -> Void)?
+    var movesHead: UUID?
 
     private var pressScreen: NSPoint?
     private var pressOrigin: NSPoint?
+    private var lastScreen: NSPoint?
     private(set) var didDrag = false
 
     override var acceptsFirstResponder: Bool { false }
@@ -107,6 +123,7 @@ final class DragHandleView: NSView {
         guard let window else { return }
         pressScreen = screenPoint
         pressOrigin = window.frame.origin
+        lastScreen = screenPoint
         didDrag = false
         NotificationCenter.default.post(name: .bublrBeginDrag, object: window)
     }
@@ -117,6 +134,16 @@ final class DragHandleView: NSView {
         let dy = screenPoint.y - start.y
         if !didDrag && abs(dx) < 2 && abs(dy) < 2 { return }
         didDrag = true
+        if let head = movesHead {
+            let last = lastScreen ?? start
+            lastScreen = screenPoint
+            NotificationCenter.default.post(
+                name: .bublrMoveHead,
+                object: window,
+                userInfo: ["bubble": head, "delta": NSSize(width: screenPoint.x - last.x, height: screenPoint.y - last.y)]
+            )
+            return
+        }
         window.setFrameOrigin(NSPoint(x: origin.x + dx, y: origin.y + dy))
     }
 
@@ -125,6 +152,7 @@ final class DragHandleView: NSView {
         defer {
             pressScreen = nil
             pressOrigin = nil
+            lastScreen = nil
             didDrag = false
         }
         guard let window else { return }
@@ -137,64 +165,130 @@ final class DragHandleView: NSView {
     }
 }
 
-// MARK: - Resize handle
+// MARK: - Edge resize handle
 
-struct WindowResizeHandle: NSViewRepresentable {
-    var onResize: (CGSize) -> Void
-    var onResizeEnd: (CGSize) -> Void
+/// Resizes the whole panel from any edge or corner.
+///
+/// It covers the panel but only claims presses within `ResizeGeometry.band` of an edge: everything further in
+/// belongs to SwiftUI, so buttons, scroll views and the web view keep their clicks. The frame follows the
+/// pointer during the gesture — the window grows as the pointer moves, and the web view resizes in place
+/// without a reload, because its `WKWebView` is never replaced.
+struct EdgeResizeHandle: NSViewRepresentable {
+    var minSize: CGSize
+    var maxSize: CGSize
 
-    func makeNSView(context: Context) -> ResizeHandleView {
-        let view = ResizeHandleView()
-        view.onResize = onResize
-        view.onResizeEnd = onResizeEnd
+    func makeNSView(context: Context) -> EdgeResizeView {
+        let view = EdgeResizeView()
+        view.minSize = minSize
+        view.maxSize = maxSize
         return view
     }
 
-    func updateNSView(_ nsView: ResizeHandleView, context: Context) {
-        nsView.onResize = onResize
-        nsView.onResizeEnd = onResizeEnd
+    func updateNSView(_ nsView: EdgeResizeView, context: Context) {
+        nsView.minSize = minSize
+        nsView.maxSize = maxSize
     }
 }
 
-final class ResizeHandleView: NSView {
-    var onResize: ((CGSize) -> Void)?
-    var onResizeEnd: ((CGSize) -> Void)?
+final class EdgeResizeView: NSView {
+    var minSize: CGSize = CGSize(width: 292, height: 280)
+    var maxSize: CGSize = CGSize(width: 980, height: 1500)
+
     private var startFrame: CGRect = .zero
     private var startPoint: NSPoint = .zero
-    private var didResize = false
+    private var dragging: ResizeEdges = []
+    private(set) var didResize = false
+
+    override var acceptsFirstResponder: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// Only the edge bands take presses; the middle of the panel is somebody else's mouse.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let superview else { return nil }
+        let local = convert(point, from: superview)
+        return ResizeGeometry.edges(at: local, in: bounds).isEmpty ? nil : self
+    }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
+        let b = bounds
+        let band = ResizeGeometry.band
+        addCursorRect(CGRect(x: b.minX, y: b.minY, width: b.width, height: band), cursor: .resizeUpDown)
+        addCursorRect(CGRect(x: b.minX, y: b.maxY - band, width: b.width, height: band), cursor: .resizeUpDown)
+        addCursorRect(CGRect(x: b.minX, y: b.minY, width: band, height: b.height), cursor: .resizeLeftRight)
+        addCursorRect(CGRect(x: b.maxX - band, y: b.minY, width: band, height: b.height), cursor: .resizeLeftRight)
     }
 
     override func mouseDown(with event: NSEvent) {
-        guard let window else { return }
-        startFrame = window.frame
-        startPoint = NSEvent.mouseLocation
-        didResize = false
+        let local = convert(event.locationInWindow, from: nil)
+        beginResize(at: local, screenPoint: NSEvent.mouseLocation)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let window else { return }
-        let point = NSEvent.mouseLocation
-        let dx = point.x - startPoint.x
-        let dy = point.y - startPoint.y
-        let minW: CGFloat = 340
-        let minH: CGFloat = 430
-        let width = max(minW, min(980, startFrame.width + dx))
-        let height = max(minH, min(1500, startFrame.height - dy))
-        var frame = startFrame
-        frame.origin.x = startFrame.minX
-        frame.origin.y = startFrame.maxY - height
-        frame.size = CGSize(width: width, height: height)
-        window.setFrame(frame, display: true)
-        didResize = true
-        onResize?(frame.size)
+        continueResize(to: NSEvent.mouseLocation)
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard let window, didResize else { return }
-        onResizeEnd?(window.frame.size)
+        finishResize()
+    }
+
+    // MARK: Gesture, in absolute screen coordinates
+
+    /// Splits the gesture from the events so the self-test can drive the real view.
+    func beginResize(at localPoint: NSPoint, screenPoint: NSPoint) {
+        guard let window else { return }
+        dragging = ResizeGeometry.edges(at: localPoint, in: bounds)
+        guard !dragging.isEmpty else { return }
+        startFrame = window.frame
+        startPoint = screenPoint
+        didResize = false
+        NotificationCenter.default.post(name: .bublrBeginDrag, object: window)
+    }
+
+    func continueResize(to screenPoint: NSPoint) {
+        guard let window, !dragging.isEmpty else { return }
+        let delta = CGSize(width: screenPoint.x - startPoint.x, height: screenPoint.y - startPoint.y)
+        var frame = ResizeGeometry.resized(startFrame, edges: dragging, by: delta, min: minSize, max: maxSize)
+        // Keep the panel reachable: the dragged edge may not be pushed past the screen's own edge.
+        if let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame {
+            frame = keepOnScreen(frame, visible: visible)
+        }
+        guard !same(frame, window.frame) else { return }
+        window.setFrame(frame, display: true)
+        didResize = true
+    }
+
+    func finishResize() {
+        defer { dragging = [] }
+        guard let window, !dragging.isEmpty else { return }
+        NotificationCenter.default.post(name: .bublrEndDrag, object: window, userInfo: ["moved": didResize])
+        guard didResize else { return }
+        NotificationCenter.default.post(
+            name: .bublrResizeEnded, object: window, userInfo: ["size": window.frame.size]
+        )
+    }
+
+    /// Slides a frame back so its dragged edge sits on the screen edge rather than beyond it, without
+    /// shrinking it: the size belongs to the gesture, the position to the screen.
+    private func keepOnScreen(_ frame: CGRect, visible: CGRect) -> CGRect {
+        var result = frame
+        if dragging.contains(.left) {
+            result.origin.x = max(frame.minX, visible.minX)
+            result.size.width = frame.maxX - result.origin.x
+        } else if dragging.contains(.right) {
+            result.size.width = min(frame.width, visible.maxX - frame.minX)
+        }
+        if dragging.contains(.bottom) {
+            result.origin.y = max(frame.minY, visible.minY)
+            result.size.height = frame.maxY - result.origin.y
+        } else if dragging.contains(.top) {
+            result.size.height = min(frame.height, visible.maxY - frame.minY)
+        }
+        return result
+    }
+
+    private func same(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
+            && abs(a.origin.x - b.origin.x) < 0.5 && abs(a.origin.y - b.origin.y) < 0.5
     }
 }
 
@@ -285,6 +379,40 @@ final class OverlayController {
         }
         observers.append(dragObserver)
 
+        // An edge drag ends with a new size and nothing else: the origin is the head's business, the size is
+        // the user's.
+        let resizeEnd = NotificationCenter.default.addObserver(
+            forName: .bublrResizeEnded, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let window = note.object as? NSWindow, let panel = window as? BubblePanel,
+                  let size = note.userInfo?["size"] as? NSSize else { return }
+            self?.resizeEnded(panel, size: size)
+        }
+        observers.append(resizeEnd)
+
+        // Dragging a chat's title bar moves the head, and the chat follows because its frame is derived.
+        let moveHead = NotificationCenter.default.addObserver(
+            forName: .bublrMoveHead, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let bubbleID = note.userInfo?["bubble"] as? UUID,
+                  let delta = note.userInfo?["delta"] as? NSSize,
+                  let head = self.panels[.provider(bubbleID)] else { return }
+            var frame = head.frame
+            frame.origin.x += delta.width
+            frame.origin.y += delta.height
+            head.setFrame(frame, display: true)
+            self.reanchorChat(bubbleID: bubbleID)
+        }
+        observers.append(moveHead)
+
+        // A display that comes or goes can strand an anchored chat off-screen.
+        let screensChanged = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.sync(animated: false)
+        }
+        observers.append(screensChanged)
+
         startWatchingForOutsideClicks()
         sync(animated: false)
     }
@@ -366,6 +494,11 @@ final class OverlayController {
         // carrying a live web view around the screen.
         for bubble in workspace.bubbles where workspace.isProviderShown(bubble.provider) {
             kinds.insert(.provider(bubble.id))
+            // A head keeps its own panel whether or not a chat is open; the chat is a sibling, not a state
+            // the head resizes into.
+            if workspace.detailAccountID(forBubble: bubble.id) != nil {
+                kinds.insert(.chat(bubble.id))
+            }
         }
         for account in workspace.accounts where account.isFloating {
             kinds.insert(.account(account.id))
@@ -380,6 +513,9 @@ final class OverlayController {
         case .provider(let bubbleID):
             guard let state = workspace.bubble(id: bubbleID) else { return panel }
             root = AnyView(ProviderBubbleRoot(providerID: state.provider, bubbleID: bubbleID))
+        case .chat(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID) else { return panel }
+            root = AnyView(ChatPanelRoot(providerID: state.provider, bubbleID: bubbleID))
         case .account(let id):
             root = AnyView(FloatingAccountRoot(accountID: id))
         }
@@ -419,8 +555,24 @@ final class OverlayController {
             guard !self.snapping.contains(kind), !self.userDragging.contains(kind) else { return }
             self.topAnchors[kind] = panel.frame.maxY
             self.persist(panel.frame, for: kind)
+            if case .provider(let bubbleID) = kind {
+                self.reanchorChat(bubbleID: bubbleID)
+            }
         }
         return panel
+    }
+
+    private func resizeEnded(_ panel: BubblePanel, size: CGSize) {
+        switch panel.kind {
+        case .chat(let bubbleID):
+            workspace.setChatSize(size, forBubble: bubbleID)
+        case .provider(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID), !state.collapsed else { return }
+            workspace.setListSize(size, forBubble: bubbleID)
+        case .account(let id):
+            workspace.setFloatingSize(size, for: id)
+        }
+        topAnchors[panel.kind] = panel.frame.maxY
     }
 
     private func handleEscape(_ panel: BubblePanel) {
@@ -432,6 +584,8 @@ final class OverlayController {
             } else if !bubble.collapsed {
                 workspace.setCollapsed(true, forBubble: bubbleID)
             }
+        case .chat(let bubbleID):
+            workspace.setDrill(nil, forBubble: bubbleID)
         case .account(let id):
             guard let account = workspace.account(id: id) else { return }
             workspace.setFloatingCollapsed(!account.floatingCollapsed, for: id)
@@ -446,19 +600,22 @@ final class OverlayController {
             guard let state = workspace.bubble(id: bubbleID) else { return nil }
             let count = workspace.accounts(for: state.provider).count
             // Only the head that opened the sign-in grows to the sign-in surface.
-            let signingIn = workspace.pendingSignIns.contains {
-                $0.account.provider == state.provider && ($0.bubbleID == nil || $0.bubbleID == bubbleID)
-            }
-            let drilled = state.drilledAccountID != nil
             let size: CGSize
             if state.collapsed {
                 size = CGSize(width: Metrics.collapsedSide, height: Metrics.collapsedSide)
-            } else if signingIn || drilled {
-                size = CGSize(width: max(360, state.chatSize.width), height: max(460, state.chatSize.height))
             } else {
-                size = CGSize(width: state.width, height: Metrics.expandedHeight(accountCount: count))
+                // The height the user dragged the list to, or one tall enough for its accounts.
+                let height = state.listHeight ?? Metrics.expandedHeight(accountCount: count)
+                size = CGSize(width: state.width, height: height)
             }
             return (size, state.origin)
+        case .chat(let bubbleID):
+            guard let state = workspace.bubble(id: bubbleID) else { return nil }
+            let size = CGSize(width: max(360, state.chatSize.width), height: max(460, state.chatSize.height))
+            let head = panels[.provider(bubbleID)]?.frame ?? CGRect(origin: state.origin, size: headSize(for: state))
+            let screen = visibleFrame(near: head)
+            let rect = Anchoring.rect(head: head, size: size, anchor: state.anchor, screen: screen)
+            return (size: rect.size, origin: rect.origin)
         case .account(let id):
             guard let account = workspace.account(id: id) else { return nil }
             let size: CGSize
@@ -478,6 +635,23 @@ final class OverlayController {
         guard !userDragging.contains(kind) else { return }
         guard let target = targetLayout(for: kind) else { return }
         let current = panel.frame
+
+        if case .chat = kind {
+            // Origin comes from the head, so there is no anchor to preserve and nothing to store.
+            let rect = clampedRect(CGRect(origin: target.origin, size: target.size), preferred: target.origin)
+            if let pending = runningTransition(kind), sameRect(pending, rect) { return }
+            let sizeChanged = abs(current.size.width - rect.size.width) > 0.5
+                || abs(current.size.height - rect.size.height) > 0.5
+            let moved = abs(current.origin.x - rect.origin.x) > 0.5 || abs(current.origin.y - rect.origin.y) > 0.5
+            guard sizeChanged || moved else { return }
+            let duration = Motion.duration(from: current.size, to: rect.size, reduceMotion: Motion.reduceMotion)
+            if animated, sizeChanged, duration > 0 {
+                animate(kind: kind, panel: panel, to: rect, over: duration)
+            } else {
+                panel.setFrame(rect, display: true)
+            }
+            return
+        }
 
         // The user can drag a panel at any time; that move becomes the new anchor.
         if !snapping.contains(kind), current.size != .zero,
@@ -538,6 +712,8 @@ final class OverlayController {
 
     private func persist(_ rect: CGRect, for kind: PanelKind) {
         switch kind {
+        case .chat:
+            break
         case .provider(let bubbleID):
             guard let state = workspace.bubble(id: bubbleID) else { return }
             if abs(state.origin.x - rect.origin.x) > 0.5 || abs(state.origin.y - rect.origin.y) > 0.5 {
@@ -546,6 +722,32 @@ final class OverlayController {
         case .account(let id):
             workspace.setFloatingOrigin(rect.origin, for: id)
         }
+    }
+
+    private func headSize(for state: BubbleState) -> CGSize {
+        guard !state.collapsed else { return CGSize(width: Metrics.collapsedSide, height: Metrics.collapsedSide) }
+        let height = state.listHeight ?? Metrics.expandedHeight(accountCount: workspace.accounts(for: state.provider).count)
+        return CGSize(width: state.width, height: height)
+    }
+
+    /// The screen frame a panel near `rect` must stay inside.
+    private func visibleFrame(near rect: CGRect) -> CGRect {
+        let screen = NSScreen.screens.first { $0.visibleFrame.intersects(rect) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        return screen?.visibleFrame ?? rect
+    }
+
+    /// Move an open chat back beside its head. Called whenever the head moves, so the pair travels together.
+    private func reanchorChat(bubbleID: UUID) {
+        guard let panel = panels[.chat(bubbleID)] else { return }
+        guard let state = workspace.bubble(id: bubbleID) else { return }
+        let head = panels[.provider(bubbleID)]?.frame ?? CGRect(origin: state.origin, size: headSize(for: state))
+        let size = CGSize(width: max(360, state.chatSize.width), height: max(460, state.chatSize.height))
+        let rect = Anchoring.rect(head: head, size: size, anchor: state.anchor, screen: visibleFrame(near: head))
+        let target = clampedRect(rect, preferred: rect.origin)
+        guard !sameRect(panel.frame, target) else { return }
+        panel.setFrame(target, display: true)
     }
 
     private func clampedRect(_ rect: CGRect, preferred: CGPoint) -> CGRect {
@@ -561,6 +763,7 @@ final class OverlayController {
 
     private func snapIfNeeded(_ window: NSWindow) {
         guard let panel = window as? BubblePanel else { return }
+        if case .chat = panel.kind { return }
         let screen = window.screen ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return }
         let threshold: CGFloat = 20
@@ -595,6 +798,17 @@ final class OverlayController {
         updateVisibility()
     }
 
+    /// Focus whatever carries the typing for a head: its chat panel when one is open, otherwise the head.
+    /// Sign-in used to happen inside the head panel, so callers used to say `.provider` and be right.
+    func focusDetail(bubbleID: UUID) {
+        sync(animated: false)
+        if panels[.chat(bubbleID)] != nil {
+            focus(.chat(bubbleID))
+        } else {
+            focus(.provider(bubbleID))
+        }
+    }
+
     /// Focus a panel for typing (sign-in, chat) without activating other windows.
     func focus(_ kind: PanelKind) {
         guard let panel = panels[kind] else { return }
@@ -609,12 +823,14 @@ final class OverlayController {
 /// live next to it, never under it, because the AppKit handle sits above SwiftUI's drawing.
 struct DragRegion<Content: View>: View {
     var onClick: (() -> Void)? = nil
+    /// Set when this region belongs to a chat: dragging then moves the head it is anchored to.
+    var movesHead: UUID? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .overlay(WindowDragHandle(onClick: onClick))
+            .overlay(WindowDragHandle(onClick: onClick, movesHead: movesHead))
     }
 }

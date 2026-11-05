@@ -44,6 +44,12 @@ struct SignInSurface: View {
                 .padding(.top, 8)
             }
             .bubbleBackground(corner: 26, tint: spec.tint)
+            // The sign-in page is a web view like any chat, and some providers ask for a QR code that needs
+            // the room. Same edges, same stored size.
+            .overlay(EdgeResizeHandle(
+                minSize: CGSize(width: 360, height: 460),
+                maxSize: CGSize(width: 980, height: 1500)
+            ))
 
             if success {
                 successOverlay

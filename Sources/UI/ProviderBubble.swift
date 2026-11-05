@@ -16,17 +16,11 @@ struct ProviderBubbleRoot: View {
     var body: some View {
         if !providerID.spec.runsInWebKit {
             UnsupportedProviderCard(provider: providerID)
-        } else if let pending = pendingSignIn {
-            SignInSurface(pending: pending)
-                .id(pending.account.id)
         } else if let state, let headID {
             if state.collapsed {
                 ProviderCollapsedBubble(provider: providerID, unread: workspace.unreadTotal(for: providerID)) {
                     workspace.setCollapsed(false, forBubble: headID)
                 }
-            } else if let drill = state.drilledAccountID, workspace.account(id: drill) != nil {
-                ChatSurface(accountID: drill, providerID: providerID, bubbleID: headID)
-                    .id(drill)
             } else {
                 ProviderBubbleList(providerID: providerID, bubbleID: headID)
             }
@@ -34,14 +28,39 @@ struct ProviderBubbleRoot: View {
             Color.clear
         }
     }
+}
+
+/// The panel beside the head: a chat, or the sign-in page that leads to one.
+///
+/// Separate from `ProviderBubbleRoot` on purpose. The head used to grow into the chat and shrink back,
+/// which cost it its own identity — badge, name, the thing you were dragging — for as long as a chat was
+/// open. Now the head stays put and this opens next to it.
+struct ChatPanelRoot: View {
+    @EnvironmentObject var workspace: Workspace
+    let providerID: ProviderID
+    let bubbleID: UUID
+
+    var body: some View {
+        if !providerID.spec.runsInWebKit {
+            UnsupportedProviderCard(provider: providerID)
+        } else if let pending = pendingSignIn {
+            SignInSurface(pending: pending)
+                .id(pending.account.id)
+        } else if let drill = workspace.bubble(id: bubbleID)?.drilledAccountID,
+                  workspace.account(id: drill) != nil {
+            ChatSurface(accountID: drill, providerID: providerID, bubbleID: bubbleID)
+                .id(drill)
+        } else {
+            Color.clear
+        }
+    }
 
     /// A sign-in belongs to the head that opened it; two heads must never show one web view.
     private var pendingSignIn: Workspace.PendingSignIn? {
-        guard let headID else { return nil }
         let primary = workspace.bubble(for: providerID)?.id
         return workspace.pendingSignIns.first { pending in
             guard pending.account.provider == providerID else { return false }
-            return (pending.bubbleID ?? primary) == headID
+            return (pending.bubbleID ?? primary) == bubbleID
         }
     }
 }
@@ -171,6 +190,11 @@ struct ProviderBubbleList: View {
             footer
         }
         .bubbleBackground(corner: 26, tint: spec.tint)
+        // Any edge, live: the panel grows as the pointer moves and the size is stored when the drag ends.
+        .overlay(EdgeResizeHandle(
+            minSize: CGSize(width: 292, height: Metrics.expandedHeight(accountCount: 0)),
+            maxSize: CGSize(width: 980, height: 1500)
+        ))
     }
 
     // MARK: Header
@@ -211,6 +235,16 @@ struct ProviderBubbleList: View {
                 if let headID { workspace.setCollapsed(true, forBubble: headID) }
             }
             Divider()
+            Menu("Chat opens") {
+                ForEach(ChatAnchor.allCases, id: \.self) { option in
+                    Button {
+                        if let headID { workspace.setAnchor(option, forBubble: headID) }
+                    } label: {
+                        Text(currentAnchor == option ? "✓ \(option.title)" : option.title)
+                    }
+                }
+            }
+            Divider()
             if workspace.isProviderShown(providerID) {
                 Button("Hide \(providerID.spec.name) bubble") {
                     workspace.setProviderVisible(false, for: providerID)
@@ -228,6 +262,10 @@ struct ProviderBubbleList: View {
                 Button("Remove this bubble", role: .destructive) { removeHead() }
             }
         }
+    }
+
+    private var currentAnchor: ChatAnchor {
+        headID.flatMap { workspace.bubble(id: $0)?.anchor } ?? .automatic
     }
 
     private var subtitle: String {

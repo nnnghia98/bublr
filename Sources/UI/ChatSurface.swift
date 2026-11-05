@@ -49,6 +49,12 @@ struct ChatSurface: View {
             webArea(account, spec: spec)
         }
         .bubbleBackground(corner: 26, tint: spec.tint)
+        // Any edge, live. A popped-out account answers to a slightly smaller floor than an anchored chat,
+        // whose provider pages break well before 360pt.
+        .overlay(EdgeResizeHandle(
+            minSize: providerID == nil ? CGSize(width: 340, height: 430) : CGSize(width: 360, height: 460),
+            maxSize: CGSize(width: 980, height: 1500)
+        ))
     }
 
     // MARK: Toolbar
@@ -64,7 +70,7 @@ struct ChatSurface: View {
                     }
                 }
             }
-            DragRegion {
+            DragRegion(movesHead: headID) {
                 HStack(spacing: 8) {
                     AccountAvatar(account: account, size: 28)
                     VStack(alignment: .leading, spacing: 1) {
@@ -179,21 +185,6 @@ struct ChatSurface: View {
         .padding(.horizontal, 10)
         .padding(.bottom, 10)
         .padding(.top, 2)
-        .overlay(alignment: .bottomTrailing) {
-            WindowResizeHandle(
-                onResize: { _ in },
-                onResizeEnd: { size in
-                    if let headID {
-                        workspace.setChatSize(size, forBubble: headID)
-                    } else if providerID == nil {
-                        workspace.setFloatingSize(size, for: account.id)
-                    }
-                }
-            )
-            .frame(width: 18, height: 18)
-            .padding(4)
-            .opacity(0.55)
-        }
     }
 
     private func sessionBanner(_ account: Account) -> some View {

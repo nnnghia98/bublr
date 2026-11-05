@@ -64,6 +64,12 @@ struct BubbleState: Identifiable, Codable, Equatable {
     var width: CGFloat = Metrics.bubbleWidth
     var height: CGFloat = Metrics.expandedHeight(accountCount: 0)
     var chatSize: CGSize = CGSize(width: Metrics.chatWidth, height: Metrics.chatHeight)
+    /// Which side of the head the chat opens on. See `ChatAnchor`.
+    var anchor: ChatAnchor = .automatic
+    /// Height the user dragged the account list to, `nil` while it should follow the number of accounts.
+    /// Separate from `height`, which older builds wrote on every resize and which must keep growing when
+    /// accounts are added.
+    var listHeight: CGFloat?
 
     init(provider: ProviderID, origin: CGPoint) {
         self.provider = provider
@@ -71,7 +77,7 @@ struct BubbleState: Identifiable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, provider, origin, collapsed, drilledAccountID, width, height, chatSize
+        case id, provider, origin, collapsed, drilledAccountID, width, height, chatSize, anchor, listHeight
     }
 
     /// State files written when a provider could own only one bubble stored the provider itself in `id`.
@@ -92,6 +98,8 @@ struct BubbleState: Identifiable, Codable, Equatable {
             ?? Metrics.expandedHeight(accountCount: 0)
         chatSize = try container.decodeIfPresent(CGSize.self, forKey: .chatSize)
             ?? CGSize(width: Metrics.chatWidth, height: Metrics.chatHeight)
+        anchor = try container.decodeIfPresent(ChatAnchor.self, forKey: .anchor) ?? .automatic
+        listHeight = try container.decodeIfPresent(CGFloat.self, forKey: .listHeight)
     }
 }
 
@@ -246,9 +254,16 @@ final class Workspace: ObservableObject {
     }
 
     nonisolated static func defaultStoreURL() -> URL {
+        defaultStoreURL(bundleID: Bundle.main.bundleIdentifier ?? "")
+    }
+
+    /// The state file for a given bundle id. A Debug build carries `com.nnnghia.bublr.dev` and gets its own
+    /// file: both builds can run at once, and two processes writing one file would trade state.
+    nonisolated static func defaultStoreURL(bundleID: String) -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("Bublr", isDirectory: true).appendingPathComponent("state.json")
+        let name = bundleID.hasSuffix(".dev") ? "state.dev.json" : "state.json"
+        return base.appendingPathComponent("Bublr", isDirectory: true).appendingPathComponent(name)
     }
 
     // MARK: Queries
@@ -457,6 +472,42 @@ final class Workspace: ObservableObject {
         guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         bubbles[idx].width = size.width
         bubbles[idx].height = size.height
+        scheduleSave()
+    }
+
+    /// Resizing the account list. Keeps `height` in step so a build that predates `listHeight` still opens
+    /// the bubble at the size the user left it.
+    func setListSize(_ size: CGSize, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
+        let widthChanged = abs(bubbles[idx].width - size.width) > 0.5
+        let heightChanged = abs((bubbles[idx].listHeight ?? 0) - size.height) > 0.5
+        guard widthChanged || heightChanged else { return }
+        bubbles[idx].width = size.width
+        bubbles[idx].height = size.height
+        bubbles[idx].listHeight = size.height
+        scheduleSave()
+    }
+
+    /// The account whose chat or sign-in belongs to this head's detail panel, if one is open.
+    ///
+    /// A chat is one `WKWebView` and can live in exactly one window, so this is also what stops two heads
+    /// from showing the same conversation.
+    func detailAccountID(forBubble bubbleID: UUID) -> UUID? {
+        guard let bubble = bubble(id: bubbleID) else { return nil }
+        if let drill = bubble.drilledAccountID, account(id: drill) != nil {
+            return drill
+        }
+        let primary = self.bubble(for: bubble.provider)?.id
+        let pending = pendingSignIns.first { pending in
+            pending.account.provider == bubble.provider && (pending.bubbleID ?? primary) == bubbleID
+        }
+        return pending?.account.id
+    }
+
+    func setAnchor(_ anchor: ChatAnchor, forBubble bubbleID: UUID) {
+        guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
+        guard bubbles[idx].anchor != anchor else { return }
+        bubbles[idx].anchor = anchor
         scheduleSave()
     }
 
