@@ -130,7 +130,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Sign-in is the provider's own")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                Text("Bublr opens the real Telegram, Messenger, Zalo, WhatsApp or Discord sign-in page in an isolated session per account. QR codes work wherever the provider supports them, and your password never passes through Bublr.")
+                Text("Bublr opens the provider's own sign-in page — \(ProviderCatalog.hostableNames()) — in an isolated session per account. QR codes work wherever the provider supports them, and your password never passes through Bublr.")
                     .font(.system(size: 11, weight: .regular, design: .rounded))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
