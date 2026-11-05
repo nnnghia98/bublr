@@ -21,6 +21,12 @@ make run ARGS="--seed-demo"   # launches with sample accounts
 The Xcode project is generated from `project.yml` and is intentionally **not** committed. If you open the
 project in Xcode, re-run `make project` after changing `project.yml` or adding files.
 
+A Debug build carries the bundle id `com.nnnghia.bublr.dev`, not the release one. `xcodebuild` registers
+every bundle it produces with LaunchServices, so an identical id would let a `.build/` Debug copy answer to
+the installed app's name and launch in its place. The state file is keyed by path, not bundle id, so both
+builds still share one workspace. `make` also stamps the commit into `Info.plist`; the menu bar shows it as
+`Bublr 0.1 · <hash>`, which is the quickest way to tell whether the running copy is the one you just built.
+
 ## Before you open a pull request
 
 ```bash

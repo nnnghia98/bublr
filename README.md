@@ -97,6 +97,7 @@ git clone https://github.com/nnnghia98/bublr.git
 cd bublr
 make build
 make install     # copies Bublr.app to /Applications
+make reinstall   # after merging: quit, rebuild Release, install, relaunch
 open /Applications/Bublr.app
 ```
 

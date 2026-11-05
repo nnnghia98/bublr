@@ -4,8 +4,14 @@ DERIVED   := .build
 APP       := $(DERIVED)/Build/Products/$(CONFIG)/$(APP_NAME).app
 BIN       := $(APP)/Contents/MacOS/$(APP_NAME)
 VERSION   := $(shell /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Support/Info.plist)
+# Stamped into Info.plist so a running copy can say which commit it is. Empty in an Xcode IDE build.
+COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+INSTALLED := /Applications/$(APP_NAME).app
+# Every bundle xcodebuild produces gets registered with LaunchServices, so a `.build/` copy would compete
+# with the installed app for the name "Bublr" — that is exactly how a stale Debug build ended up launching.
+LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 
-.PHONY: all project build run test test-live render install package release clean
+.PHONY: all project build run test test-live render install reinstall package release clean
 
 all: build
 
@@ -15,7 +21,7 @@ project:
 
 build: project
 	xcodebuild -project Bublr.xcodeproj -scheme Bublr -configuration $(CONFIG) \
-		-derivedDataPath $(DERIVED) build
+		-derivedDataPath $(DERIVED) BUBLR_COMMIT=$(COMMIT) build
 
 ## Launch the app. Extra flags: make run ARGS="--seed-demo"
 run: build
@@ -34,8 +40,20 @@ render: build
 	$(BIN) --render-ui /tmp/bublr-ui
 
 install: build
-	rm -rf /Applications/$(APP_NAME).app
-	cp -R $(APP) /Applications/
+	rm -rf $(INSTALLED)
+	cp -R $(APP) $(INSTALLED)
+	-@$(LSREGISTER) -u "$(abspath $(APP))" >/dev/null 2>&1 || true
+	-@$(LSREGISTER) -f $(INSTALLED) >/dev/null 2>&1 || true
+	@echo "Installed $(APP_NAME) $(VERSION) ($(COMMIT)) -> $(INSTALLED)"
+
+## Quit, rebuild Release, install, relaunch. The one command to run after merging.
+reinstall:
+	-@osascript -e 'quit app "$(APP_NAME)"' 2>/dev/null || true
+	-@pkill -f "$(INSTALLED)/Contents/MacOS/$(APP_NAME)" 2>/dev/null || true
+	@sleep 1
+	@$(MAKE) install CONFIG=Release
+	@open $(INSTALLED)
+	@echo "Running $$(/usr/libexec/PlistBuddy -c 'Print BublrCommit' $(INSTALLED)/Contents/Info.plist)" 
 
 package: build
 	mkdir -p dist
