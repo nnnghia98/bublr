@@ -210,6 +210,16 @@ struct ProviderBubbleList: View {
             Button("Collapse bubble") {
                 if let headID { workspace.setCollapsed(true, forBubble: headID) }
             }
+            Divider()
+            if workspace.isProviderShown(providerID) {
+                Button("Hide \(providerID.spec.name) bubble") {
+                    workspace.setProviderVisible(false, for: providerID)
+                }
+            } else {
+                Button("Show \(providerID.spec.name) bubble") {
+                    workspace.setProviderVisible(true, for: providerID)
+                }
+            }
         }
     }
 

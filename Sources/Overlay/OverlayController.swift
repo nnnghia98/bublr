@@ -362,7 +362,11 @@ final class OverlayController {
 
     private func desiredKinds() -> Set<PanelKind> {
         var kinds = Set<PanelKind>()
-        for bubble in workspace.bubbles { kinds.insert(.provider(bubble.id)) }
+        // A hidden provider's head is not a panel at all: closing it is what keeps an empty provider from
+        // carrying a live web view around the screen.
+        for bubble in workspace.bubbles where workspace.isProviderShown(bubble.provider) {
+            kinds.insert(.provider(bubble.id))
+        }
         for account in workspace.accounts where account.isFloating {
             kinds.insert(.account(account.id))
         }
