@@ -81,15 +81,18 @@ echo "  mounts cleanly and contains ${APP_NAME}.app"
 CHECKSUM=$(shasum -a 256 "$DMG" | awk '{print $1}')
 
 step "Notarising"
+NOTARISED=0
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
     xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$DMG"
     xcrun stapler validate "$DMG"
+    NOTARISED=1
 elif [[ -n "${AC_USERNAME:-}" && -n "${AC_PASSWORD:-}" ]]; then
     xcrun notarytool submit "$DMG" --apple-id "$AC_USERNAME" --password "$AC_PASSWORD" \
         ${AC_TEAM_ID:+--team-id "$AC_TEAM_ID"} --wait
     xcrun stapler staple "$DMG"
     xcrun stapler validate "$DMG"
+    NOTARISED=1
 else
     echo "  skipped: set NOTARY_PROFILE (xcrun notarytool store-credentials) or AC_USERNAME/AC_PASSWORD."
     echo "  The DMG is unsigned-for-distribution: Gatekeeper will ask for a right-click on first launch."
@@ -108,6 +111,19 @@ cask "bublr" do
   homepage "https://github.com/nnnghia98/bublr"
 
   app "${APP_NAME}.app"
+CASK
+
+# Tell `brew` users the same thing the release notes do, instead of letting them meet Gatekeeper alone.
+if [[ "$NOTARISED" == "0" ]]; then
+    cat >> "${DIST}/bublr.rb" <<'CASK'
+
+  caveats <<~EOS
+    This build is not notarised. The first launch needs right-click → Open, or:
+      xattr -d com.apple.quarantine "#{appdir}/Bublr.app"
+  EOS
+CASK
+fi
+cat >> "${DIST}/bublr.rb" <<'CASK'
 end
 CASK
 echo "  dist/SHA256SUMS"
