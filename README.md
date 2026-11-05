@@ -127,6 +127,7 @@ the menu bar.
 | Keep me signed in / sign out | Right-click an account in a bubble |
 | Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
 | Hide or show one provider | Right-click the bubble header → *Hide … bubble* / *Show … bubble* |
+| Retire a duplicate head | Right-click **that** bubble's header → *Remove this bubble* |
 | Zoom a chat | − / percentage / + in the chat toolbar; the percentage resets to 100% |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |
 | Settings | Menu bar → *Bublr Settings…* (⌘,) |

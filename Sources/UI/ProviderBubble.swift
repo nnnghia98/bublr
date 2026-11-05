@@ -220,6 +220,13 @@ struct ProviderBubbleList: View {
                     workspace.setProviderVisible(true, for: providerID)
                 }
             }
+            // Hiding is per provider, so a duplicate head could otherwise never be retired: it would stay
+            // behind the same switch as the head it duplicates. Offered only when removing this one leaves
+            // the provider's other heads in place, so there is no way to delete a provider's last window by
+            // accident from here.
+            if workspace.bubbles(for: providerID).count > 1 {
+                Button("Remove this bubble", role: .destructive) { removeHead() }
+            }
         }
     }
 
@@ -344,6 +351,12 @@ struct ProviderBubbleList: View {
         } else if let headID {
             workspace.setDrill(account.id, forBubble: headID)
         }
+    }
+
+    /// Retires this head only. The accounts and the duplicate's siblings are untouched.
+    private func removeHead() {
+        guard let headID else { return }
+        workspace.removeBubble(id: headID)
     }
 
     /// A second head over the same accounts, for watching two chats side by side.

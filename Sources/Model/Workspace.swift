@@ -324,25 +324,20 @@ final class Workspace: ObservableObject {
         return twin
     }
 
-    /// Removes one head. The provider keeps its accounts until its last head goes.
+    /// Removes one head. Siblings and accounts stay: a head is a window onto a provider's accounts, not the
+    /// owner of them, so deleting a duplicate must not take anything else with it.
     func removeBubble(id: UUID) {
-        guard let state = bubble(id: id) else { return }
+        guard bubble(id: id) != nil else { return }
         bubbles.removeAll { $0.id == id }
-        if bubbles(for: state.provider).isEmpty { forget(provider: state.provider) }
         scheduleSave()
     }
 
+    /// Removes every head a provider owns. The accounts survive, so *Add provider bubble* brings back the
+    /// same accounts a moment later; accounts are deleted one at a time from their own row, which asks first.
     func removeBubble(for provider: ProviderID) {
+        guard bubbles.contains(where: { $0.provider == provider }) else { return }
         bubbles.removeAll { $0.provider == provider }
-        forget(provider: provider)
         scheduleSave()
-    }
-
-    private func forget(provider: ProviderID) {
-        accounts.removeAll { $0.provider == provider }
-        pendingSignIns.removeAll { $0.account.provider == provider }
-        // A removed provider has no visibility left to remember; re-adding it starts from the default.
-        providerVisibility.removeValue(forKey: provider.rawValue)
     }
 
     func setCollapsed(_ collapsed: Bool, forBubble bubbleID: UUID) {
