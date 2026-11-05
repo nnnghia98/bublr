@@ -267,6 +267,16 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("Reduce Motion skips the transition",
               Motion.duration(from: head, to: panel, reduceMotion: true) == 0
                 && Motion.duration(from: panel, to: head, reduceMotion: true) == 0)
+        // A release is only a release if the bundle says so: a mistyped bump ships a version nobody can match
+        // to a DMG.
+        let bundle = Bundle.main.infoDictionary
+        let shortVersion = bundle?["CFBundleShortVersionString"] as? String ?? ""
+        let buildNumber = bundle?["CFBundleVersion"] as? String ?? ""
+        check("the bundle carries a semantic version",
+              shortVersion.range(of: #"^\d+\.\d+\.\d+$"#, options: .regularExpression) != nil, shortVersion)
+        check("the bundle carries a numeric build",
+              (Int(buildNumber) ?? 0) > 0, buildNumber)
+
         check("zoom starts at actual size", Zoom.clamped(1) == 1 && Zoom.label(1) == "100%")
         check("zoom clamps at both ends", Zoom.clamped(0.1) == Zoom.min && Zoom.clamped(9) == Zoom.max)
         check("zoom steps by a tenth", Zoom.bigger(1) == 1.1 && Zoom.smaller(1) == 0.9)

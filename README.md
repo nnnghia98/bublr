@@ -35,8 +35,8 @@ already trust keeps doing the talking.
 
 *Screenshots use sample data from `--seed-demo` / `--render-ui`; no real accounts.*
 
-> **Status:** 0.1, early. The app is used daily by its author, and `make test` covers the parts that break
-> silently. There are no notarised binaries yet — build from source.
+> **Status:** 1.0.0. The app is used daily by its author, and `make test` covers the parts that break
+> silently. There is no notarised binary yet — until there is, a downloaded build needs a right-click to open.
 
 ## Contents
 
@@ -87,6 +87,27 @@ Being explicit about what this is not saves everyone a pull request:
   to.
 
 ## Install
+
+### Download
+
+Grab `Bublr-<version>.dmg` from [Releases](https://github.com/nnnghia98/bublr/releases), open it, drag **Bublr**
+onto the Applications shortcut, and launch it. The DMG carries an ad-hoc signature and is **not notarised yet**,
+so the first launch needs a right-click → *Open* — or one command:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Bublr.app
+```
+
+### Homebrew
+
+`make release` writes `dist/bublr.rb`, a cask pinned to that DMG's sha256. Drop it into a `homebrew-bublr` tap
+as `Casks/bublr.rb` and it installs with:
+
+```bash
+brew install --cask nnnghia98/bublr/bublr
+```
+
+### From source
 
 Requirements: **macOS 14 (Sonoma) or newer**, **Xcode 15 or newer**, and
 [xcodegen](https://github.com/yonaskolb/XcodeGen).

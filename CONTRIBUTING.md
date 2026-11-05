@@ -30,7 +30,7 @@ A Debug build carries the bundle id `com.nnnghia.bublr.dev`, not the release one
 every bundle it produces with LaunchServices, so an identical id would let a `.build/` Debug copy answer to
 the installed app's name and launch in its place. The state file is keyed by path, not bundle id, so both
 builds still share one workspace. `make` also stamps the commit into `Info.plist`; the menu bar shows it as
-`Bublr 0.1 · <hash>`, which is the quickest way to tell whether the running copy is the one you just built.
+`Bublr 1.0.0 · <hash>`, which is the quickest way to tell whether the running copy is the one you just built.
 
 ## Before you open a pull request
 
@@ -195,3 +195,27 @@ Branches are short-lived: one concern each, and they are deleted when the PR mer
 - Describe the user-visible change, how you tested it, and include a screenshot for UI work.
 - Note any provider that changed its page, and update the selectors in the same PR.
 - Keep the body honest: it becomes the squash commit body, so it is the part of this PR that outlives it.
+
+## Releasing
+
+Version lives in `Support/Info.plist` (`CFBundleShortVersionString`, `CFBundleVersion`). The menu bar shows it
+as `Bublr 1.0.0 · <hash>`, so a bump is visible in the running app.
+
+1. Bump both plist keys, and add a `CHANGELOG.md` section for the new version.
+2. `make test` — the full self-test; the CI gate runs the same thing.
+3. `make release` — builds Release with the hardened runtime, packages `dist/Bublr-<version>.dmg` with an
+   `/Applications` shortcut, mounts it to prove it works, writes `dist/SHA256SUMS` and `dist/bublr.rb`.
+4. `make publish` — the same, then creates or updates the GitHub release for `v<version>` with the DMG, checksums
+   and cask attached.
+
+Signing and notarisation are opt-in, because they need an Apple Developer account:
+
+```bash
+DEVELOPER_ID="Developer ID Application: Name (TEAMID)" \
+NOTARY_PROFILE="bublr-notary" \
+make release
+```
+
+without those variables the DMG ships with the ad-hoc signature and the script says so — it never reports a
+notarised build it did not produce. Create the notary profile once with
+`xcrun notarytool store-credentials bublr-notary --apple-id … --team-id … --password …`.

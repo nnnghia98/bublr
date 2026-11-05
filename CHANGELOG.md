@@ -4,15 +4,38 @@ All notable changes to Bublr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] — 2026-11-06
+
+First release with the shape the app is meant to keep.
 
 ### Added
 
-- **Duplicate a provider bubble.** Right-click a bubble's header, or use the menu bar's *Duplicate provider
-  bubble*, to open a second head over the same accounts — one collapsed on another Space while the other
-  watches unread, both signed in as the same logins. A duplicate shares the account list and unread count
-  with its source but keeps its own position, size and collapse state. Only one head can open a given
-  account's chat at a time, because an account has exactly one web view.
+- **The chat opens beside its head, not instead of it.** Each bubble now owns two panels: the head, which keeps its
+  badge, name and drag handle, and a chat panel anchored to it. Placement is automatic — it picks a side with room
+  and never covers the head — or fixed to a side you choose; the choice is stored per bubble.
+- **Live resizing from any edge.** Chat, sign-in page and account list all resize while the pointer moves, with
+  floors that keep provider pages usable. Sizes are remembered per bubble and per account.
+- **A duplicate head can be retired.** Hiding is per provider; *Remove this bubble* acts on one head and leaves the
+  accounts alone — as does removing every head of a provider, which used to delete its accounts.
+- **Per-provider visibility.** A provider with no accounts stays off the overlay until you ask for it, with a
+  right-click override either way.
+- **Zoom inside a chat**, 50–200% in one-decimal steps, remembered per account and applied before the first load.
+- **Collapse and expand animate**, off under Reduce Motion, and only size changes animate.
+- **Click away to collapse everything**, on by default and switchable from the menu bar.
+- The menu bar shows the running build: `Bublr 1.0.0 · <commit>`.
+- `make release` builds a signed-if-you-have-certificates DMG with checksums and a Homebrew cask.
+
+### Changed
+
+- A Debug build carries its own bundle id (`com.nnnghia.bublr.dev`) and its own state file, so it can never
+  answer to the installed app's name or fight it over one workspace.
+- The onboarding copy names the providers the app can actually host, derived from the catalogue.
+
+### Fixed
+
+- A state file written by an older build no longer risks being silently replaced by an empty workspace when a new
+  key is missing.
+- A duplicated head inherits its source's side and list height.
 
 ## [0.1] — 2026-11-04
 

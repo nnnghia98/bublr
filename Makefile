@@ -11,7 +11,7 @@ INSTALLED := /Applications/$(APP_NAME).app
 # with the installed app for the name "Bublr" — that is exactly how a stale Debug build ended up launching.
 LSREGISTER := /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 
-.PHONY: all project build run test test-live render install reinstall package release clean
+.PHONY: all project build run test test-live render install reinstall package dmg release publish clean
 
 all: build
 
@@ -61,9 +61,13 @@ package: build
 	cp -R $(APP) dist/
 	ditto -c -k --keepParent dist/$(APP_NAME).app dist/$(APP_NAME)-$(VERSION).zip
 
-## Build a Release app and zip it into dist/
+## Build a Release app, sign/notarise when credentials are set, and write a DMG + checksums + cask
 release:
-	$(MAKE) package CONFIG=Release
+	./Tools/release.sh
+
+## Same, then create or update the GitHub release for this version's tag
+publish:
+	./Tools/release.sh --publish
 
 clean:
 	rm -rf $(DERIVED) dist

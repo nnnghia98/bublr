@@ -112,7 +112,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(quit)
     }
 
-    /// `Bublr 0.1 · 8c2404a`, or without the hash when built from Xcode rather than `make`.
+    /// `Bublr 1.0.0 · 8c2404a`, or without the hash when built from Xcode rather than `make`.
     private var buildIdentity: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "0"
