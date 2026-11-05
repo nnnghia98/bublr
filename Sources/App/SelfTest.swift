@@ -255,6 +255,126 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
               Motion.duration(from: panel,
                              to: CGSize(width: panel.width, height: Metrics.expandedHeight(accountCount: 5)),
                              reduceMotion: false) == Motion.expandDuration)
+
+        anchoringTests()
+        resizeTests()
+    }
+
+    // MARK: Anchoring
+
+    /// Pure geometry: a 1000x700 screen, a 332x290 head, a 396x648 chat.
+    private func anchoringTests() {
+        // Room for a 396x648 chat on every side of a 332x290 head, which no real screen has: the point is
+        // to check each side on its own before the clamp is allowed to interfere.
+        let screen = CGRect(x: 0, y: 0, width: 1600, height: 1700)
+        let size = CGSize(width: 396, height: 648)
+        let centered = CGRect(x: 600, y: 700, width: 332, height: 290)
+
+        let right = Anchoring.rect(head: centered, size: size, anchor: .right, screen: screen)
+        check("a fixed right anchor sits just right of the head",
+              right.minX == centered.maxX + Anchoring.gap)
+        check("a fixed anchor centres the chat on the head",
+              abs(right.midY - centered.midY) < 0.5)
+
+        let left = Anchoring.rect(head: centered, size: size, anchor: .left, screen: screen)
+        check("a fixed left anchor sits just left of the head",
+              left.maxX == centered.minX - Anchoring.gap)
+
+        let below = Anchoring.rect(head: centered, size: size, anchor: .bottom, screen: screen)
+        check("a fixed bottom anchor sits under the head",
+              below.maxY == centered.minY - Anchoring.gap)
+        check("a fixed anchor is centred across the head",
+              abs(below.midX - centered.midX) < 0.5)
+
+        let above = Anchoring.rect(head: centered, size: size, anchor: .top, screen: screen)
+        check("a fixed top anchor sits over the head", above.minY == centered.maxY + Anchoring.gap)
+
+        // Automatic: a head parked against the right edge has no room to its right, so it goes left.
+        let atRightEdge = CGRect(x: 1268, y: 700, width: 332, height: 290)
+        let autoRight = Anchoring.rect(head: atRightEdge, size: size, anchor: .automatic, screen: screen)
+        check("automatic avoids a side with no room",
+              autoRight.maxX <= atRightEdge.minX && autoRight.maxX > 0)
+
+        // A head with room on both sides prefers the left, which is where `automaticOrder` starts.
+        let autoCentered = Anchoring.rect(head: centered, size: size, anchor: .automatic, screen: screen)
+        check("automatic prefers the first side that fits",
+              autoCentered.maxX == centered.minX - Anchoring.gap)
+
+        // No horizontal room either side: it should go below or above, not off-screen.
+        let tallScreen = CGRect(x: 0, y: 0, width: 480, height: 1600)
+        let wideHead = CGRect(x: 74, y: 700, width: 332, height: 290)
+        let stacked = Anchoring.rect(head: wideHead, size: size, anchor: .automatic, screen: tallScreen)
+        check("automatic falls back to above or below",
+              (stacked.maxY <= wideHead.minY || stacked.minY >= wideHead.maxY))
+        check("...and stays on screen",
+              stacked.minX >= tallScreen.minX && stacked.maxX <= tallScreen.maxX
+                && stacked.minY >= tallScreen.minY && stacked.maxY <= tallScreen.maxY)
+
+        // A fixed side is honoured even when it clips, then clamped back onto the screen.
+        let smallScreen = CGRect(x: 0, y: 0, width: 1000, height: 700)
+        let edgeHead = CGRect(x: 668, y: 200, width: 332, height: 290)
+        let clipped = Anchoring.rect(head: edgeHead, size: size, anchor: .right, screen: smallScreen)
+        check("a fixed side survives clamping", clipped.maxX == smallScreen.maxX)
+        check("a fixed side is not swapped for one that fits",
+              Anchoring.rect(head: edgeHead, size: size, anchor: .right, screen: smallScreen).maxX
+                > edgeHead.maxX - 1)
+        check("clamping keeps the chat on screen", clipped.minX >= smallScreen.minX)
+
+        check("a chat taller than the screen is pinned, not shrunk",
+              Anchoring.clamp(CGRect(x: -50, y: -50, width: 396, height: 900), to: screen).size.height == 900)
+        check("every anchor has a label", ChatAnchor.allCases.allSatisfy { !$0.title.isEmpty })
+        check("automatic tries all four sides", Set(ChatAnchor.automaticOrder) == Set([.left, .right, .bottom, .top]))
+    }
+
+    // MARK: Resizing
+
+    private func resizeTests() {
+        let frame = CGRect(x: 400, y: 300, width: 396, height: 648)
+        let minSize = CGSize(width: 360, height: 460)
+        let maxSize = CGSize(width: 980, height: 1500)
+
+        let wider = ResizeGeometry.resized(frame, edges: [.right], by: CGSize(width: 60, height: 0),
+                                           min: minSize, max: maxSize)
+        check("dragging the right edge grows rightwards",
+              wider.width == 456 && wider.minX == frame.minX)
+
+        let fromLeft = ResizeGeometry.resized(frame, edges: [.left], by: CGSize(width: -60, height: 0),
+                                              min: minSize, max: maxSize)
+        check("dragging the left edge keeps the right edge planted",
+              fromLeft.width == 456 && fromLeft.maxX == frame.maxX)
+
+        let fromBottom = ResizeGeometry.resized(frame, edges: [.bottom], by: CGSize(width: 0, height: -40),
+                                                min: minSize, max: maxSize)
+        check("dragging the bottom edge keeps the top edge planted",
+              fromBottom.height == 688 && fromBottom.maxY == frame.maxY)
+
+        let fromTop = ResizeGeometry.resized(frame, edges: [.top], by: CGSize(width: 0, height: 40),
+                                             min: minSize, max: maxSize)
+        check("dragging the top edge keeps the bottom edge planted",
+              fromTop.height == 688 && fromTop.minY == frame.minY)
+
+        let corner = ResizeGeometry.resized(frame, edges: [.left, .top], by: CGSize(width: -10, height: 10),
+                                           min: minSize, max: maxSize)
+        check("a corner drag resizes both axes",
+              corner.width == 406 && corner.height == 658 && corner.maxX == frame.maxX && corner.minY == frame.minY)
+
+        let tiny = ResizeGeometry.resized(frame, edges: [.left, .bottom], by: CGSize(width: 900, height: 900),
+                                          min: minSize, max: maxSize)
+        check("a drag past the floor stops at the minimum",
+              tiny.size == minSize && tiny.maxX == frame.maxX && tiny.maxY == frame.maxY)
+
+        let huge = ResizeGeometry.resized(frame, edges: [.right, .top], by: CGSize(width: 4000, height: 4000),
+                                          min: minSize, max: maxSize)
+        check("a drag past the ceiling stops at the maximum", huge.size == maxSize)
+
+        let rect = CGRect(x: 0, y: 0, width: 400, height: 600)
+        check("the middle of a panel is not an edge", ResizeGeometry.edges(at: CGPoint(x: 200, y: 300), in: rect).isEmpty)
+        check("a corner grabs two edges",
+              ResizeGeometry.edges(at: CGPoint(x: 347, y: 65), in: rect) == [])
+        check("the top-left corner grabs both of its edges",
+              ResizeGeometry.edges(at: CGPoint(x: 3, y: 597), in: rect) == [.left, .top])
+        check("the right edge is grabbable anywhere along it",
+              ResizeGeometry.edges(at: CGPoint(x: 397, y: 123), in: rect) == [.right])
     }
 
     // MARK: Persistence
@@ -311,6 +431,51 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
             root["bubbles"] = bubbles
             try? JSONSerialization.data(withJSONObject: root).write(to: legacyURL)
         }
+        // Anchoring and list height are new keys on `BubbleState`; a file without them must default rather
+        // than fail to decode, which `load()` would swallow into an empty workspace.
+        let anchorURL = temporaryStoreURL("anchor")
+        let anchored = Workspace(storeURL: anchorURL)
+        let anchorHead = anchored.addBubble(for: .slack)
+        anchored.addAccount(provider: .slack, label: "Work")
+        check("a fresh bubble anchors automatically", anchorHead.anchor == .automatic)
+        check("a fresh bubble has no dragged height", anchored.bubble(id: anchorHead.id)?.listHeight == nil)
+        anchored.setAnchor(.bottom, forBubble: anchorHead.id)
+        anchored.setListSize(CGSize(width: 420, height: 560), forBubble: anchorHead.id)
+        anchored.saveNow()
+        let anchorReloaded = Workspace(storeURL: anchorURL)
+        check("the chosen side survives relaunch", anchorReloaded.bubble(id: anchorHead.id)?.anchor == .bottom)
+        check("the dragged list height survives relaunch",
+              anchorReloaded.bubble(id: anchorHead.id)?.listHeight == 560)
+        check("the list width survives relaunch", anchorReloaded.bubble(id: anchorHead.id)?.width == 420)
+        check("an old build still sees the resized height",
+              anchorReloaded.bubble(id: anchorHead.id)?.height == 560)
+        try? FileManager.default.removeItem(at: anchorURL.deletingLastPathComponent())
+
+        let missingURL = temporaryStoreURL("missing-keys")
+        let missing = Workspace(storeURL: missingURL)
+        missing.addBubble(for: .telegram)
+        missing.saveNow()
+        if let data = try? Data(contentsOf: missingURL),
+           var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           var bubbles = root["bubbles"] as? [[String: Any]], !bubbles.isEmpty {
+            bubbles[0].removeValue(forKey: "anchor")
+            bubbles[0].removeValue(forKey: "listHeight")
+            root["bubbles"] = bubbles
+            try? JSONSerialization.data(withJSONObject: root).write(to: missingURL)
+        }
+        let missingLoaded = Workspace(storeURL: missingURL)
+        check("a bubble written before anchoring existed still loads",
+              missingLoaded.bubbles.count == 1
+                && missingLoaded.bubbles[0].anchor == .automatic
+                && missingLoaded.bubbles[0].listHeight == nil)
+        try? FileManager.default.removeItem(at: missingURL.deletingLastPathComponent())
+
+        // A Debug build must not share the release app's file: both can run at once.
+        let releaseURL = Workspace.defaultStoreURL(bundleID: "com.nnnghia.bublr")
+        let devURL = Workspace.defaultStoreURL(bundleID: "com.nnnghia.bublr.dev")
+        check("release and dev builds keep separate state",
+              releaseURL.lastPathComponent == "state.json" && devURL.lastPathComponent == "state.dev.json")
+
         let migrated = Workspace(storeURL: legacyURL)
         check("legacy bubble id migrates into a provider", migrated.bubbles(for: .discord).count == 1)
         check("migrated bubble keeps its provider's accounts",
@@ -436,6 +601,83 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
             workspace.setVisible(true)
             overlay.updateVisibility()
             check("show all brings it back", panel.isVisible)
+
+            // #10: the chat is a panel of its own beside the head, not a size the head grows into.
+            if let account = workspace.accounts(for: .telegram).first {
+                let headBefore = panel.frame
+                workspace.setDrill(account.id, forBubble: head.id)
+                overlay.sync(animated: false)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                let chat = overlay.panel(for: .chat(head.id))
+                check("opening a chat opens a second panel", chat != nil)
+                check("the head keeps its size while a chat is open",
+                      abs(panel.frame.width - headBefore.width) < 1 && abs(panel.frame.height - headBefore.height) < 1,
+                      "head=\(panel.frame.size) was=\(headBefore.size)")
+                check("the head stays where it was", abs(panel.frame.origin.x - headBefore.origin.x) < 1)
+
+                if let chat {
+                    check("the chat does not overlap its head", !chat.frame.intersects(panel.frame),
+                          "head=\(panel.frame) chat=\(chat.frame)")
+                    if let visible = NSScreen.screens.first(where: { $0.visibleFrame.intersects(chat.frame) })?.visibleFrame {
+                        check("the chat lands on screen",
+                              visible.contains(CGPoint(x: chat.frame.minX, y: chat.frame.minY))
+                                && visible.contains(CGPoint(x: chat.frame.maxX - 1, y: chat.frame.maxY - 1)))
+                    }
+                    check("the chat is chat-sized", chat.frame.width >= 360 && chat.frame.height >= 460,
+                          "\(chat.frame.size)")
+
+                    // Drag the head: the chat must come with it, on the same side.
+                    var movedHead = panel.frame
+                    movedHead.origin.x -= 140
+                    panel.setFrame(movedHead, display: true)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                    check("the chat follows its head", !chat.frame.intersects(panel.frame),
+                          "head=\(panel.frame) chat=\(chat.frame)")
+
+                    // An edge drag reports a size; the workspace keeps it for the head that owns the chat.
+                    NotificationCenter.default.post(name: .bublrBeginDrag, object: chat)
+                    var resized = chat.frame
+                    resized.size = CGSize(width: 520, height: 700)
+                    chat.setFrame(resized, display: true)
+                    NotificationCenter.default.post(name: .bublrResizeEnded, object: chat,
+                                                    userInfo: ["size": resized.size])
+                    NotificationCenter.default.post(name: .bublrEndDrag, object: chat, userInfo: ["moved": true])
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                    check("a resized chat remembers its size",
+                          workspace.bubble(id: head.id)?.chatSize == CGSize(width: 520, height: 700),
+                          "\(String(describing: workspace.bubble(id: head.id)?.chatSize))")
+
+                    // The web view must follow the frame, not be rebuilt: a resize that reloaded the page
+                    // would lose whatever the user was typing.
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                    let liveSession = sessions.existing(accountID: account.id)
+                    check("the chat keeps one web view across a resize",
+                          liveSession != nil && liveSession?.webView.window === chat,
+                          liveSession == nil ? "no session" : "window=\(String(describing: liveSession?.webView.window))")
+
+                    // Same for the account list, which had no handle at all before.
+                    NotificationCenter.default.post(name: .bublrBeginDrag, object: panel)
+                    var listFrame = panel.frame
+                    listFrame.size = CGSize(width: 400, height: 480)
+                    panel.setFrame(listFrame, display: true)
+                    NotificationCenter.default.post(name: .bublrResizeEnded, object: panel,
+                                                    userInfo: ["size": listFrame.size])
+                    NotificationCenter.default.post(name: .bublrEndDrag, object: panel, userInfo: ["moved": true])
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                    check("a resized account list remembers its size",
+                          workspace.bubble(id: head.id)?.listHeight == 480
+                            && workspace.bubble(id: head.id)?.width == 400,
+                          "\(String(describing: workspace.bubble(id: head.id)?.listHeight))")
+                }
+
+                workspace.setCollapsed(true, forBubble: head.id)
+                overlay.sync(animated: false)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+                check("collapsing the head closes its chat", overlay.panel(for: .chat(head.id)) == nil)
+                workspace.setCollapsed(false, forBubble: head.id)
+                overlay.sync(animated: false)
+                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            }
         }
         overlay.stop()
         dragTests()
@@ -483,6 +725,8 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         handle.finishDrag(clickCount: 1)
         check("finishing a drag reports it", finished == 1, "finished=\(finished)")
         check("a drag is not treated as a click", clicks == 0, "clicks=\(clicks)")
+
+        resizeHandleTests()
 
         handle.beginDrag(at: NSPoint(x: 500, y: 500))
         handle.continueDrag(to: NSPoint(x: 501, y: 500))
@@ -547,6 +791,53 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
     }
 
     // MARK: Helpers
+
+    // MARK: Edge resize gesture
+
+    /// Drives the real `EdgeResizeView`, so the hit-testing, the live frame updates and the notification
+    /// that carries the final size are all exercised together.
+    private func resizeHandleTests() {
+        let frame = NSRect(x: 400, y: 400, width: 396, height: 648)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                              backing: .buffered, defer: false)
+        let view = EdgeResizeView(frame: NSRect(origin: .zero, size: frame.size))
+        view.minSize = CGSize(width: 360, height: 460)
+        view.maxSize = CGSize(width: 980, height: 1500)
+        window.contentView = view
+        window.orderBack(nil)
+        view.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        check("the middle of a panel is not a resize grip", view.hitTest(NSPoint(x: 198, y: 324)) == nil)
+        check("the left edge is a resize grip", view.hitTest(NSPoint(x: 2, y: 324)) === view)
+
+        var reported: CGSize?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bublrResizeEnded, object: window, queue: .main
+        ) { note in
+            reported = note.userInfo?["size"] as? NSSize
+        }
+
+        // Grab the left edge and pull it 60pt left: the window grows, its right edge stays put.
+        let rightEdge = window.frame.maxX
+        view.beginResize(at: NSPoint(x: 2, y: 324), screenPoint: NSPoint(x: frame.minX, y: frame.midY))
+        view.continueResize(to: NSPoint(x: frame.minX - 60, y: frame.midY))
+        check("the panel grows while the pointer moves",
+              abs(window.frame.width - 456) < 1, "\(window.frame.size)")
+        check("the opposite edge stays planted",
+              abs(window.frame.maxX - rightEdge) < 1, "\(window.frame)")
+        view.finishResize()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        check("the finished size is reported once", reported.map { abs($0.width - 456) < 1 } ?? false,
+              String(describing: reported))
+        check("a resize with no pointer travel reports nothing new",
+              { reported = nil
+                view.beginResize(at: NSPoint(x: 2, y: 324), screenPoint: NSPoint(x: 100, y: 100))
+                view.finishResize()
+                return reported == nil }())
+        NotificationCenter.default.removeObserver(observer)
+        window.orderOut(nil)
+    }
 
     private func temporaryStoreURL(_ name: String) -> URL {
         let dir = FileManager.default.temporaryDirectory

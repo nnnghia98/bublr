@@ -21,6 +21,11 @@ make run ARGS="--seed-demo"   # launches with sample accounts
 The Xcode project is generated from `project.yml` and is intentionally **not** committed. If you open the
 project in Xcode, re-run `make project` after changing `project.yml` or adding files.
 
+A bubble owns two panels while a chat is open: the head, and a chat panel whose frame is derived from the
+head on every layout pass — never stored. That is why `PanelKind` has a `.chat` case and why the head's
+`origin` is persisted while the chat's is not. `Anchoring.swift` holds the geometry, which is pure and
+therefore asserted directly in the self-test.
+
 A Debug build carries the bundle id `com.nnnghia.bublr.dev`, not the release one. `xcodebuild` registers
 every bundle it produces with LaunchServices, so an identical id would let a `.build/` Debug copy answer to
 the installed app's name and launch in its place. The state file is keyed by path, not bundle id, so both
