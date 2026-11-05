@@ -114,6 +114,8 @@ the menu bar.
 4. Drag a bubble by its header (or by the circle when collapsed); collapse with the minus button; pop an
    account out from its context menu. Clicking anywhere outside the bubbles collapses them all — turn that
    off with *Collapse bubbles when I click away* in the menu bar.
+5. A provider with no accounts has no bubble on the overlay; right-click a bubble's header to hide or show
+   that provider by hand.
 
 | Action | How |
 | --- | --- |
@@ -123,6 +125,7 @@ the menu bar.
 | Start a new account | Menu bar → *New account…* |
 | Keep me signed in / sign out | Right-click an account in a bubble |
 | Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
+| Hide or show one provider | Right-click the bubble header → *Hide … bubble* / *Show … bubble* |
 | Zoom a chat | − / percentage / + in the chat toolbar; the percentage resets to 100% |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |
 | Settings | Menu bar → *Bublr Settings…* (⌘,) |

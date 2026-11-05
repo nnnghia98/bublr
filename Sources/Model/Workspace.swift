@@ -186,9 +186,12 @@ struct WorkspaceSnapshot: Codable {
     var hasOnboarded: Bool = false
     /// Collapse every bubble when the user clicks outside them. On by default; see `Workspace`.
     var collapseOnOutsideClick: Bool = true
+    /// Explicit show/hide per provider, keyed by `ProviderID.rawValue`. A provider absent from this map
+    /// follows the default rule in `isProviderShown(_:)`.
+    var providerVisibility: [String: Bool] = [:]
 
     private enum CodingKeys: String, CodingKey {
-        case accounts, bubbles, visible, hasOnboarded, collapseOnOutsideClick
+        case accounts, bubbles, visible, hasOnboarded, collapseOnOutsideClick, providerVisibility
     }
 }
 
@@ -203,6 +206,7 @@ extension WorkspaceSnapshot {
         visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
         hasOnboarded = try container.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? false
         collapseOnOutsideClick = try container.decodeIfPresent(Bool.self, forKey: .collapseOnOutsideClick) ?? true
+        providerVisibility = try container.decodeIfPresent([String: Bool].self, forKey: .providerVisibility) ?? [:]
     }
 }
 
@@ -216,6 +220,9 @@ final class Workspace: ObservableObject {
     /// Whether a click outside every bubble collapses them all. `false` leaves the overlay exactly as the
     /// user arranged it, for someone parking one chat beside their work all day.
     @Published var collapseOnOutsideClick: Bool = true
+    /// Explicit show/hide per provider. Absent means "follow the default": a provider with no accounts is not
+    /// on the overlay, because an empty bubble is a panel with a live web view that shows nothing.
+    @Published private(set) var providerVisibility: [String: Bool] = [:]
 
     /// Accounts whose sign-in surface is currently open (not yet persisted with a session).
     @Published var pendingSignIns: [PendingSignIn] = []
@@ -290,6 +297,9 @@ final class Workspace: ObservableObject {
         }
         let state = BubbleState(provider: provider, origin: defaultOrigin(index: bubbles.count))
         bubbles.append(state)
+        // Asking for a provider's bubble is itself the instruction to show it, so a provider that is empty
+        // right now still gets an override. Without this, "Add provider bubble" would silently do nothing.
+        providerVisibility[provider.rawValue] = true
         if !isVisible { isVisible = true }
         scheduleSave()
         return state
@@ -331,12 +341,41 @@ final class Workspace: ObservableObject {
     private func forget(provider: ProviderID) {
         accounts.removeAll { $0.provider == provider }
         pendingSignIns.removeAll { $0.account.provider == provider }
+        // A removed provider has no visibility left to remember; re-adding it starts from the default.
+        providerVisibility.removeValue(forKey: provider.rawValue)
     }
 
     func setCollapsed(_ collapsed: Bool, forBubble bubbleID: UUID) {
         guard let idx = bubbles.firstIndex(where: { $0.id == bubbleID }) else { return }
         bubbles[idx].collapsed = collapsed
         if collapsed { bubbles[idx].drilledAccountID = nil }
+        scheduleSave()
+    }
+
+    /// Whether this provider's heads belong on the overlay.
+    ///
+    /// The default is "shown while the provider has something to show": any account at all, or a sign-in in
+    /// progress. Deliberately *not* "shown only while connected" — signing out leaves an account row that
+    /// says "Sign-in needed", and hiding the bubble at that moment would swallow the one warning that tells
+    /// the user their chat needs attention. The bubble disappears when the provider has no accounts left,
+    /// or when the user hides it by hand.
+    func isProviderShown(_ provider: ProviderID) -> Bool {
+        if let explicit = providerVisibility[provider.rawValue] { return explicit }
+        if !accounts(for: provider).isEmpty { return true }
+        return pendingSignIns.contains { $0.account.provider == provider }
+    }
+
+    func setProviderVisible(_ visible: Bool, for provider: ProviderID) {
+        let key = provider.rawValue
+        guard providerVisibility[key] != visible else { return }
+        providerVisibility[key] = visible
+        scheduleSave()
+    }
+
+    /// Hands the provider back to the default rule. Used when a toggle would only restate the default, so the
+    /// state file does not accumulate overrides that mean "whatever you would have done anyway".
+    func clearProviderVisibility(for provider: ProviderID) {
+        guard providerVisibility.removeValue(forKey: provider.rawValue) != nil else { return }
         scheduleSave()
     }
 
@@ -486,6 +525,11 @@ final class Workspace: ObservableObject {
         account.status = .needsSignIn
         accounts.append(account)
         addBubble(for: provider)
+        // Acting on a provider the user had hidden is a request to see it: adding an account to an invisible
+        // bubble would otherwise appear to do nothing.
+        if providerVisibility[provider.rawValue] == false {
+            clearProviderVisibility(for: provider)
+        }
         scheduleSave()
         return account
     }
@@ -639,6 +683,7 @@ final class Workspace: ObservableObject {
         isVisible = snapshot.visible
         hasOnboarded = snapshot.hasOnboarded
         collapseOnOutsideClick = snapshot.collapseOnOutsideClick
+        providerVisibility = snapshot.providerVisibility
         // Recover any bubble that lost its geometry.
         for (index, state) in bubbles.enumerated() where state.origin == .zero {
             bubbles[index].origin = defaultOrigin(index: index)
@@ -652,7 +697,8 @@ final class Workspace: ObservableObject {
             bubbles: bubbles,
             visible: isVisible,
             hasOnboarded: hasOnboarded,
-            collapseOnOutsideClick: collapseOnOutsideClick
+            collapseOnOutsideClick: collapseOnOutsideClick,
+            providerVisibility: providerVisibility
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

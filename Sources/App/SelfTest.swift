@@ -80,6 +80,31 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         workspace.setFloating(false, for: account.id)
         check("account docks back", workspace.account(id: account.id)?.isFloating == false)
 
+        // Per-provider visibility: an empty provider is not on the overlay, and the user can override either way.
+        let visURL = temporaryStoreURL("visibility")
+        let vis = Workspace(storeURL: visURL)
+        vis.addBubble(for: .discord)
+        check("asking for a bubble shows it even when empty", vis.isProviderShown(.discord) == true)
+        vis.clearProviderVisibility(for: .discord)
+        check("an empty provider with no override is hidden", vis.isProviderShown(.discord) == false)
+        let visAccount = vis.addAccount(provider: .discord, label: "Gaming")
+        check("adding an account brings the provider back", vis.isProviderShown(.discord) == true)
+        vis.setProviderVisible(false, for: .discord)
+        check("hiding a provider with accounts sticks", vis.isProviderShown(.discord) == false)
+        vis.saveNow()
+        check("the override survives relaunch",
+              Workspace(storeURL: visURL).isProviderShown(.discord) == false)
+        vis.setProviderVisible(true, for: .discord)
+        vis.removeAccount(id: visAccount.id)
+        check("an override keeps an empty provider visible", vis.isProviderShown(.discord) == true)
+        vis.clearProviderVisibility(for: .discord)
+        check("clearing the override returns to the default", vis.isProviderShown(.discord) == false)
+        check("an account added to a hidden provider unhides it",
+              { vis.setProviderVisible(false, for: .discord)
+                vis.addAccount(provider: .discord, label: "Second")
+                return vis.isProviderShown(.discord) }())
+        try? FileManager.default.removeItem(at: visURL.deletingLastPathComponent())
+
         // Clicking away collapses everything at once, and a click that changes nothing is not a change.
         // Uses its own workspace: the checks below count this one's bubbles, and this file's author has
         // already been caught once by leaving a provider behind in shared state.
