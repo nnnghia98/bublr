@@ -117,6 +117,10 @@ the menu bar.
    off with *Collapse bubbles when I click away* in the menu bar.
 5. A provider with no accounts has no bubble on the overlay; right-click a bubble's header to hide or show
    that provider by hand.
+6. Clicking an account opens its chat **beside** the head rather than in place of it, so the head keeps its
+   badge, its name and its handle. Drag the head and the chat comes with it; *Chat opens* in the same
+   right-click menu pins the side, or leaves it automatic.
+7. Drag any edge or corner of a chat or an account list to resize it, live. Sizes stick per bubble.
 
 | Action | How |
 | --- | --- |
@@ -128,6 +132,8 @@ the menu bar.
 | Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
 | Hide or show one provider | Right-click the bubble header → *Hide … bubble* / *Show … bubble* |
 | Zoom a chat | − / percentage / + in the chat toolbar; the percentage resets to 100% |
+| Resize a chat or account list | Drag any edge or corner |
+| Choose the side a chat opens on | Right-click the bubble header → *Chat opens* |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |
 | Settings | Menu bar → *Bublr Settings…* (⌘,) |
 
@@ -247,9 +253,9 @@ recording permission, which is how the screenshots above are produced.
 
 ```
 Sources/
-  Model/    ProviderCatalog (URLs, detection JS) · Workspace (state + persistence)
+  Model/    ProviderCatalog (URLs, detection JS) · Workspace (state + persistence) · Anchoring (chat geometry)
   Web/      WebSession (one WKWebView per account) · WebSessionStore
-  Overlay/  OverlayController (borderless NSPanel layout, drag, collapse, clamping)
+  Overlay/  OverlayController (borderless NSPanel layout, drag, edge resize, collapse, clamping)
   UI/       SwiftUI surfaces: bubble, sign-in, chat, welcome, design system
   App/      App delegate, menu bar, ⌥⌘B hotkey, self-test, offline renderer
 Tools/      window-probe (panel facts) · ocr-probe (reads text out of a rendered PNG)

@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let head = self?.workspace.bubble(for: provider) else { return }
-            self?.overlay.focus(.provider(head.id))
+            self?.overlay.focusDetail(bubbleID: head.id)
         }
     }
 
@@ -138,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             if bubble.collapsed { workspace.setCollapsed(false, forBubble: bubble.id) }
             NSApp.activate(ignoringOtherApps: true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.overlay.focus(.provider(bubble.id))
+                self?.overlay.focusDetail(bubbleID: bubble.id)
             }
         }
     }
