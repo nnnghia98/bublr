@@ -138,7 +138,13 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("second provider bubble", workspace.bubbles.count == 2)
         _ = workspace.addAccount(provider: .messenger, label: "")
         workspace.removeBubble(for: .messenger)
-        check("removing a bubble removes its accounts", workspace.accounts(for: .messenger).isEmpty)
+        check("removing every head of a provider keeps its accounts",
+              workspace.bubbles(for: .messenger).isEmpty
+                && workspace.accounts(for: .messenger).count == 1,
+              "bubbles=\(workspace.bubbles(for: .messenger).count) accounts=\(workspace.accounts(for: .messenger).count)")
+        check("adding the provider back returns the same accounts",
+              { workspace.addBubble(for: .messenger)
+                return workspace.accounts(for: .messenger).count }() == 1)
 
         // One provider, several heads: same accounts and unread, but never the same web view.
         let head = workspace.addBubble(for: .telegram)
@@ -162,6 +168,15 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
             check("removing a duplicate keeps the provider and its accounts",
                   workspace.bubbles(for: .telegram).count == 1
                     && workspace.accounts(for: .telegram).count == 1)
+            check("removing a duplicate leaves the surviving head as it was",
+                  workspace.bubble(id: head.id) != nil
+                    && workspace.bubble(id: head.id)?.drilledAccountID == nil)
+            // The last head can go too: the accounts outlive it, so the provider can be brought back.
+            workspace.removeBubble(id: head.id)
+            check("removing the last head keeps the accounts",
+                  workspace.bubbles(for: .telegram).isEmpty
+                    && workspace.accounts(for: .telegram).count == 1)
+            check("the removed head is really gone", workspace.bubble(id: head.id) == nil)
         }
 
         let catalog = ProviderCatalog.all
