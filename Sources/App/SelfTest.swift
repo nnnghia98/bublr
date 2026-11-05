@@ -153,6 +153,15 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("duplicate keeps the shared account list", workspace.accounts(for: .telegram).count == 1)
         check("duplicate is offset from its source", twin.map { $0.origin != head.origin } ?? false)
         check("duplicate starts un-drilled", twin?.drilledAccountID == nil)
+        workspace.setAnchor(.bottom, forBubble: head.id)
+        workspace.setListSize(CGSize(width: 380, height: 520), forBubble: head.id)
+        if let again = workspace.duplicateBubble(id: head.id) {
+            check("a duplicate inherits the head's side and list size",
+                  again.anchor == .bottom && again.listHeight == 520 && again.width == 380,
+                  "anchor=\(again.anchor) height=\(String(describing: again.listHeight))")
+            workspace.removeBubble(id: again.id)
+        }
+        workspace.setAnchor(.automatic, forBubble: head.id)
         if let twin {
             workspace.setDrill(account.id, forBubble: head.id)
             check("head drills its own account", workspace.bubble(id: head.id)?.drilledAccountID == account.id)

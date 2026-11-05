@@ -333,6 +333,8 @@ final class Workspace: ObservableObject {
         twin.width = source.width
         twin.height = source.height
         twin.chatSize = source.chatSize
+        twin.anchor = source.anchor
+        twin.listHeight = source.listHeight
         bubbles.append(twin)
         if !isVisible { isVisible = true }
         scheduleSave()
