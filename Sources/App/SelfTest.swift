@@ -188,6 +188,15 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("whatsapp is QR-only", ProviderCatalog.whatsappSpec.loginMethods == [.qr])
         check("whatsapp is browser-only", !ProviderCatalog.whatsappSpec.runsInWebKit)
         check("browser-only providers stay out of the catalog", !ProviderCatalog.available.contains { $0.id == .whatsapp })
+        // The onboarding copy promised WhatsApp sign-in long after the catalogue dropped it, because the
+        // sentence was written by hand. It is derived from the catalogue now.
+        let hostable = ProviderCatalog.hostableNames()
+        check("the onboarding copy names only hostable providers",
+              !hostable.contains("WhatsApp"), hostable)
+        check("the onboarding copy counts the rest",
+              hostable == "Telegram, Messenger, Zalo, Discord and 3 more", hostable)
+        check("every named provider really runs in WebKit",
+              ProviderCatalog.available.allSatisfy { $0.id != .whatsapp || !$0.runsInWebKit })
         let core: [ProviderID] = [.telegram, .messenger, .zalo]
         check("core providers are offered", core.allSatisfy { wanted in ProviderCatalog.available.contains { $0.id == wanted } })
         check("messenger is password-only", ProviderCatalog.messengerSpec.loginMethods == [.credentials])

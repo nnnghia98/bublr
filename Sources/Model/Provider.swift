@@ -136,6 +136,16 @@ enum ProviderCatalog {
     /// Providers that can host their real client inside Bublr.
     static var available: [ProviderSpec] { all.filter(\.runsInWebKit) }
 
+    /// The hostable providers as a sentence fragment: "Telegram, Messenger, Zalo, Discord and 3 more".
+    ///
+    /// Derived rather than written out, because the copy this replaces advertised WhatsApp — which cannot run
+    /// in WebKit at all — long after the catalogue had dropped it. A list built from `available` cannot drift.
+    static func hostableNames(limit: Int = 4) -> String {
+        let names = available.filter { $0.id != .custom }.map(\.name)
+        guard names.count > limit else { return names.joined(separator: ", ") }
+        return names.prefix(limit).joined(separator: ", ") + " and \(names.count - limit) more"
+    }
+
     static func spec(for id: ProviderID) -> ProviderSpec {
         all.first { $0.id == id } ?? customSpec
     }
