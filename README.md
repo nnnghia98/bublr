@@ -112,7 +112,8 @@ the menu bar.
    **Duplicate bubble** (right-click the header, or the menu bar) opens a second head over the same
    accounts when you want the same chats visible in two places.
 4. Drag a bubble by its header (or by the circle when collapsed); collapse with the minus button; pop an
-   account out from its context menu.
+   account out from its context menu. Clicking anywhere outside the bubbles collapses them all — turn that
+   off with *Collapse bubbles when I click away* in the menu bar.
 
 | Action | How |
 | --- | --- |
@@ -121,6 +122,7 @@ the menu bar.
 | Duplicate a bubble | Right-click the bubble header, or menu bar → *Duplicate provider bubble* |
 | Start a new account | Menu bar → *New account…* |
 | Keep me signed in / sign out | Right-click an account in a bubble |
+| Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
 | Reset all bubble positions | Menu bar → *Reset bubble layout* |
 | Settings | Menu bar → *Bublr Settings…* (⌘,) |
 

@@ -238,6 +238,9 @@ final class OverlayController {
         let deadline: Date
     }
     private var transitions: [PanelKind: Transition] = [:]
+    /// Click monitors watching for a click outside every bubble. `addLocalMonitorForEvents` returns nil when
+    /// it cannot install, so the array holds optionals.
+    private var clickMonitors: [Any?] = []
     private var isStarted = false
     private var isHiddenByUser = false
 
@@ -282,13 +285,41 @@ final class OverlayController {
         }
         observers.append(dragObserver)
 
+        startWatchingForOutsideClicks()
         sync(animated: false)
+    }
+
+    /// Collapse everything when the user clicks away from the bubbles.
+    ///
+    /// A *global* monitor only — deliberately. It receives events that go to another app or to the desktop,
+    /// and it observes without consuming, so the click still lands wherever the user aimed it. It never sees
+    /// clicks inside Bublr itself, which is the point:
+    ///
+    /// - clicking a second bubble focuses that one instead of collapsing the overlay out from under it;
+    /// - right-clicking an account row opens its context menu without the bubble shrinking to a head first;
+    /// - clicking the menu-bar item does not close the menu's own subject.
+    ///
+    /// A local monitor would need to tell those apart from a genuine click-away, and every rule for doing so
+    /// was a guess about private window classes. The cost of leaving it out is that a click inside Bublr's
+    /// own non-bubble window — the welcome window — does not collapse anything either.
+    private func startWatchingForOutsideClicks() {
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        clickMonitors.append(NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            DispatchQueue.main.async { self?.collapseAllAfterClickAway() }
+        })
+    }
+
+    private func collapseAllAfterClickAway() {
+        guard workspace.collapseOnOutsideClick, !panels.isEmpty else { return }
+        workspace.collapseAll()
     }
 
     func stop() {
         cancellables.removeAll()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
+        clickMonitors.compactMap { $0 }.forEach(NSEvent.removeMonitor)
+        clickMonitors.removeAll()
         moveObservers.values.forEach { NotificationCenter.default.removeObserver($0) }
         moveObservers.removeAll()
         panels.values.forEach { $0.close() }

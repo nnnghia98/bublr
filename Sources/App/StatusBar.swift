@@ -37,6 +37,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         toggle.target = self
         menu.addItem(toggle)
 
+        let collapseAway = NSMenuItem(
+            title: "Collapse bubbles when I click away",
+            action: #selector(toggleCollapseAway),
+            keyEquivalent: ""
+        )
+        collapseAway.target = self
+        collapseAway.state = app.workspace.collapseOnOutsideClick ? .on : .off
+        menu.addItem(collapseAway)
+
         menu.addItem(.separator())
 
         let addBubble = NSMenuItem(title: "Add provider bubble", action: nil, keyEquivalent: "")
@@ -95,6 +104,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleBubbles() { app.toggleBubbles() }
+
+    @objc private func toggleCollapseAway() {
+        app.workspace.setCollapseOnOutsideClick(!app.workspace.collapseOnOutsideClick)
+    }
 
     @objc private func addBubble(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let id = ProviderID(rawValue: raw) else { return }

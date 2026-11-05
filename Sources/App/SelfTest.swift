@@ -80,6 +80,27 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         workspace.setFloating(false, for: account.id)
         check("account docks back", workspace.account(id: account.id)?.isFloating == false)
 
+        // Clicking away collapses everything at once, and a click that changes nothing is not a change.
+        // Uses its own workspace: the checks below count this one's bubbles, and this file's author has
+        // already been caught once by leaving a provider behind in shared state.
+        let awayURL = temporaryStoreURL("collapse-all")
+        let away = Workspace(storeURL: awayURL)
+        away.addBubble(for: .telegram)
+        away.addBubble(for: .zalo)
+        let awayAccount = away.addAccount(provider: .telegram, label: "Work")
+        away.setDrill(awayAccount.id, for: .telegram)
+        away.setFloating(true, for: awayAccount.id)
+        check("collapse all reports the change", away.collapseAll() == true)
+        check("collapse all collapses every head",
+              away.bubbles.allSatisfy { $0.collapsed },
+              "\(away.bubbles.map(\.collapsed))")
+        check("collapse all clears the drill",
+              away.bubbles.allSatisfy { $0.drilledAccountID == nil })
+        check("collapse all collapses a popped-out account",
+              away.account(id: awayAccount.id)?.floatingCollapsed == true)
+        check("collapse all is idempotent", away.collapseAll() == false)
+        try? FileManager.default.removeItem(at: awayURL.deletingLastPathComponent())
+
         workspace.renameAccount(id: account.id, label: "Work")
         check("rename applies", workspace.account(id: account.id)?.label == "Work")
 
@@ -223,6 +244,24 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("collapsed bubble survives relaunch", reloaded.bubble(for: .zalo)?.collapsed == true)
         check("provider survives relaunch", reloaded.accounts.first?.provider == .zalo)
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+
+        // A state file written before `collapseOnOutsideClick` existed must still load, with the new
+        // preference taking its default. Synthesised decoding would throw on the missing key, and
+        // `Workspace.load()` swallows that — so the failure mode is a silent wipe of every account.
+        let oldURL = temporaryStoreURL("old-snapshot")
+        let old = Workspace(storeURL: oldURL)
+        old.addBubble(for: .telegram)
+        old.addAccount(provider: .telegram, label: "Old")
+        old.saveNow()
+        if let data = try? Data(contentsOf: oldURL),
+           var root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            root.removeValue(forKey: "collapseOnOutsideClick")
+            try? JSONSerialization.data(withJSONObject: root).write(to: oldURL)
+        }
+        let upgraded = Workspace(storeURL: oldURL)
+        check("state file without the new key still loads", upgraded.accounts.count == 1)
+        check("missing preference takes its default", upgraded.collapseOnOutsideClick == true)
+        try? FileManager.default.removeItem(at: oldURL.deletingLastPathComponent())
 
         // Older state files stored the provider itself in a bubble's `id`, because a provider could
         // only ever own one bubble. Those files must still load.
