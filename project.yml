@@ -45,6 +45,9 @@ targets:
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.nnnghia.bublr.dev
+        # Required by the notary service. Debug builds keep it off so a debugger can attach.
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
     dependencies:
       - sdk: WebKit.framework
       - sdk: Carbon.framework
