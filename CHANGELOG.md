@@ -23,7 +23,11 @@ First release with the shape the app is meant to keep.
 - **Collapse and expand animate**, off under Reduce Motion, and only size changes animate.
 - **Click away to collapse everything**, on by default and switchable from the menu bar.
 - The menu bar shows the running build: `Bublr 1.0.0 · <commit>`.
-- `make release` builds a signed-if-you-have-certificates DMG with checksums and a Homebrew cask.
+- **In-app updates.** *Check for Updates…* in the menu bar, plus a quiet once-a-day check that only renames the
+  menu item. The download is verified against the release's published SHA-256 and the version inside the archive
+  before anything is replaced; the swap happens after the app quits and it reopens itself.
+- `make release` builds a signed-if-you-have-certificates DMG and a zip (the zip is what the updater installs),
+  with checksums and a Homebrew cask.
 
 ### Changed
 
