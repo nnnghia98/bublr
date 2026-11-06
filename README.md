@@ -107,6 +107,16 @@ as `Casks/bublr.rb` and it installs with:
 brew install --cask nnnghia98/bublr/bublr
 ```
 
+### Updates
+
+Bublr updates itself from its own GitHub releases. *Check for Updates…* in the menu bar asks now; by default it
+also checks quietly once a day at launch and quietly renames that item to *Update to Bublr 1.1.0…* when something
+newer exists — no pop-up until you click it.
+
+An update is only installed if it verifies: the archive's SHA-256 must match the release's published
+`SHA256SUMS`, and the version inside the archive must match the version the release announced. Anything missing or
+mismatched is refused. The swap happens after Bublr quits, and it reopens itself.
+
 ### From source
 
 Requirements: **macOS 14 (Sonoma) or newer**, **Xcode 15 or newer**, and

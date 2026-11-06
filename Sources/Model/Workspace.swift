@@ -197,9 +197,12 @@ struct WorkspaceSnapshot: Codable {
     /// Explicit show/hide per provider, keyed by `ProviderID.rawValue`. A provider absent from this map
     /// follows the default rule in `isProviderShown(_:)`.
     var providerVisibility: [String: Bool] = [:]
+    var autoCheckForUpdates: Bool = true
+    var lastUpdateCheck: Date?
 
     private enum CodingKeys: String, CodingKey {
         case accounts, bubbles, visible, hasOnboarded, collapseOnOutsideClick, providerVisibility
+        case autoCheckForUpdates, lastUpdateCheck
     }
 }
 
@@ -215,6 +218,8 @@ extension WorkspaceSnapshot {
         hasOnboarded = try container.decodeIfPresent(Bool.self, forKey: .hasOnboarded) ?? false
         collapseOnOutsideClick = try container.decodeIfPresent(Bool.self, forKey: .collapseOnOutsideClick) ?? true
         providerVisibility = try container.decodeIfPresent([String: Bool].self, forKey: .providerVisibility) ?? [:]
+        autoCheckForUpdates = try container.decodeIfPresent(Bool.self, forKey: .autoCheckForUpdates) ?? true
+        lastUpdateCheck = try container.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)
     }
 }
 
@@ -231,6 +236,10 @@ final class Workspace: ObservableObject {
     /// Explicit show/hide per provider. Absent means "follow the default": a provider with no accounts is not
     /// on the overlay, because an empty bubble is a panel with a live web view that shows nothing.
     @Published private(set) var providerVisibility: [String: Bool] = [:]
+    /// Whether Bublr looks for a newer release in the background. A quiet check runs at most once a day.
+    @Published private(set) var autoCheckForUpdates: Bool = true
+    /// When the last successful check happened, so "quietly once a day" means once a day across relaunches.
+    @Published private(set) var lastUpdateCheck: Date?
 
     /// Accounts whose sign-in surface is currently open (not yet persisted with a session).
     @Published var pendingSignIns: [PendingSignIn] = []
@@ -373,6 +382,24 @@ final class Workspace: ObservableObject {
         if let explicit = providerVisibility[provider.rawValue] { return explicit }
         if !accounts(for: provider).isEmpty { return true }
         return pendingSignIns.contains { $0.account.provider == provider }
+    }
+
+    func setAutoCheckForUpdates(_ enabled: Bool) {
+        guard autoCheckForUpdates != enabled else { return }
+        autoCheckForUpdates = enabled
+        scheduleSave()
+    }
+
+    func recordUpdateCheck(at date: Date = Date()) {
+        lastUpdateCheck = date
+        scheduleSave()
+    }
+
+    /// A quiet check is due when the user wants them and the last one is old enough (or has never run).
+    func shouldCheckForUpdatesQuietly(now: Date = Date(), minimumInterval: TimeInterval = 24 * 60 * 60) -> Bool {
+        guard autoCheckForUpdates else { return false }
+        guard let last = lastUpdateCheck else { return true }
+        return now.timeIntervalSince(last) >= minimumInterval
     }
 
     func setProviderVisible(_ visible: Bool, for provider: ProviderID) {
@@ -730,6 +757,8 @@ final class Workspace: ObservableObject {
         hasOnboarded = snapshot.hasOnboarded
         collapseOnOutsideClick = snapshot.collapseOnOutsideClick
         providerVisibility = snapshot.providerVisibility
+        autoCheckForUpdates = snapshot.autoCheckForUpdates
+        lastUpdateCheck = snapshot.lastUpdateCheck
         // Recover any bubble that lost its geometry.
         for (index, state) in bubbles.enumerated() where state.origin == .zero {
             bubbles[index].origin = defaultOrigin(index: index)
@@ -744,7 +773,9 @@ final class Workspace: ObservableObject {
             visible: isVisible,
             hasOnboarded: hasOnboarded,
             collapseOnOutsideClick: collapseOnOutsideClick,
-            providerVisibility: providerVisibility
+            providerVisibility: providerVisibility,
+            autoCheckForUpdates: autoCheckForUpdates,
+            lastUpdateCheck: lastUpdateCheck
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
