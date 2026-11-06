@@ -208,6 +208,9 @@ as `Bublr 1.0.0 · <hash>`, so a bump is visible in the running app.
 4. `make publish` — the same, then creates or updates the GitHub release for `v<version>` with the DMG, checksums
    and cask attached.
 
+Every release must publish `Bublr-<version>.zip` next to the DMG: the in-app updater installs the zip and refuses a
+release that has only a DMG. `Tools/release.sh` builds both and lists both in `SHA256SUMS`.
+
 Signing and notarisation are opt-in, because they need an Apple Developer account:
 
 ```bash

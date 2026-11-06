@@ -25,6 +25,7 @@ DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
 APP=".build/Build/Products/Release/${APP_NAME}.app"
 DIST="dist"
 DMG="${DIST}/${APP_NAME}-${VERSION}.dmg"
+ZIP="${DIST}/${APP_NAME}-${VERSION}.zip"
 TAG="v${VERSION}"
 PUBLISH=0
 
@@ -71,6 +72,11 @@ if [[ -n "${DEVELOPER_ID:-}" ]]; then
     codesign --force --timestamp --sign "$DEVELOPER_ID" "$DMG"
 fi
 
+# The in-app updater downloads this zip: a DMG cannot be installed without user interaction.
+step "Packaging ${ZIP}"
+rm -f "$ZIP"
+ditto -c -k --keepParent "$APP" "$ZIP"
+
 step "Mounting the DMG to check it"
 MOUNT=$(hdiutil attach -nobrowse -readonly "$DMG" | awk -F'\t' '/\/Volumes\//{print $NF}' | tail -1)
 [[ -x "${MOUNT}/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" ]] \
@@ -79,6 +85,7 @@ hdiutil detach "$MOUNT" -quiet
 echo "  mounts cleanly and contains ${APP_NAME}.app"
 
 CHECKSUM=$(shasum -a 256 "$DMG" | awk '{print $1}')
+ZIP_CHECKSUM=$(shasum -a 256 "$ZIP" | awk '{print $1}')
 
 step "Notarising"
 NOTARISED=0
@@ -99,7 +106,9 @@ else
 fi
 
 step "Writing checksums and the Homebrew cask"
-printf '%s  %s\n' "$CHECKSUM" "$(basename "$DMG")" > "${DIST}/SHA256SUMS"
+printf '%s  %s\n%s  %s\n' \
+    "$CHECKSUM" "$(basename "$DMG")" \
+    "$ZIP_CHECKSUM" "$(basename "$ZIP")" > "${DIST}/SHA256SUMS"
 cat > "${DIST}/bublr.rb" <<CASK
 cask "bublr" do
   version "${VERSION}"
@@ -133,10 +142,10 @@ if [[ "$PUBLISH" == "1" ]]; then
     step "Publishing ${TAG}"
     command -v gh >/dev/null || { echo "gh is not installed" >&2; exit 1; }
     gh release view "$TAG" >/dev/null 2>&1 \
-        && gh release upload "$TAG" "$DMG" "${DIST}/SHA256SUMS" "${DIST}/bublr.rb" --clobber \
-        || gh release create "$TAG" "$DMG" "${DIST}/SHA256SUMS" "${DIST}/bublr.rb" \
+        && gh release upload "$TAG" "$DMG" "$ZIP" "${DIST}/SHA256SUMS" "${DIST}/bublr.rb" --clobber \
+        || gh release create "$TAG" "$DMG" "$ZIP" "${DIST}/SHA256SUMS" "${DIST}/bublr.rb" \
              --title "${APP_NAME} ${VERSION}" --generate-notes
 fi
 
 step "Done"
-printf '  %s\n  sha256 %s\n' "$DMG" "$CHECKSUM"
+printf '  %s\n  sha256 %s\n  %s\n  sha256 %s\n' "$DMG" "$CHECKSUM" "$ZIP" "$ZIP_CHECKSUM"
