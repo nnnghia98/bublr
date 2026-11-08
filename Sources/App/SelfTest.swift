@@ -3,6 +3,17 @@ import SwiftUI
 import WebKit
 import Foundation
 
+/// Serves fixtures instead of the network, so the update path runs in CI without touching GitHub.
+struct StaticTransport: UpdateTransport {
+    let payloads: [String: Data]
+    func data(from url: URL) async throws -> Data {
+        guard let payload = payloads[url.absoluteString] else {
+            throw UpdateError.network("no fixture for \(url.absoluteString)")
+        }
+        return payload
+    }
+}
+
 /// `Bublr --selftest` exercises what is easy to get wrong without a human watching: model and
 /// layout math, persistence, the overlay contract, and — most importantly — that the real provider
 /// sign-in pages load and render inside the exact `WKWebView` configuration the app uses.
@@ -29,6 +40,7 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         modelTests()
         layoutTests()
         persistenceTests()
+        updateTests()
         overlayTests()
         print("\nLive provider pages (real network, real WKWebView, off-screen)")
         liveWebTests { [weak self] in
@@ -518,6 +530,167 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         try? FileManager.default.removeItem(at: legacyURL.deletingLastPathComponent())
     }
 
+    // MARK: Updates
+
+    /// The whole check-and-verify path with a stubbed transport: no network, no server, no GitHub.
+    private func updateTests() {
+        // Version comparison: the only thing standing between "an update exists" and "downgrade yourself".
+        check("a patch release is newer", SemanticVersion.isNewer("1.0.1", than: "1.0.0"))
+        check("a minor release beats an older minor", SemanticVersion.isNewer("1.10.0", than: "1.9.0"))
+        check("missing components count as zero",
+              SemanticVersion.compare("1.1", "1.1.0") == .orderedSame
+                && SemanticVersion.isNewer("1.1.1", than: "1.1"))
+        check("a prerelease loses to its release",
+              !SemanticVersion.isNewer("2.0.0-beta", than: "2.0.0")
+                && SemanticVersion.isNewer("2.0.0", than: "2.0.0-beta"))
+        check("a tag with a v prefix compares like without",
+              SemanticVersion.compare("v1.2.0", "1.2.0") == .orderedSame)
+        check("the same version is not an update", !SemanticVersion.isNewer("1.0.0", than: "1.0.0"))
+        check("an older version is not an update", !SemanticVersion.isNewer("0.9.9", than: "1.0.0"))
+
+        // Feed parsing and the decision built on top of it.
+        let zipName = "Bublr-9.9.9.zip"
+        let zipURL = URL(string: "https://example.invalid/\(zipName)")!
+        let sumsURL = URL(string: "https://example.invalid/SHA256SUMS")!
+        let feed = """
+        {"tag_name":"v9.9.9","body":"## Changes\\n- Anchored chat\\n- Notes","published_at":"2026-11-06T00:00:00Z",
+         "assets":[{"name":"Bublr-9.9.9.dmg","browser_download_url":"https://example.invalid/Bublr-9.9.9.dmg","size":10},
+                   {"name":"\(zipName)","browser_download_url":"\(zipURL.absoluteString)","size":2048},
+                   {"name":"SHA256SUMS","browser_download_url":"\(sumsURL.absoluteString)","size":80}]}
+        """
+        let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+
+        func service(payload: String, version: String = current) -> UpdateService {
+            UpdateService(currentVersion: version,
+                          transport: StaticTransport(payloads: [UpdateService.latestReleaseURL.absoluteString: Data(payload.utf8)]))
+        }
+
+        let decided = runAsync { try await service(payload: feed).check() }
+        if case .available(let release) = decided {
+            check("a newer release is offered", release.version == "9.9.9")
+            check("the archive is the zip, not the dmg", release.zipURL.lastPathComponent == zipName)
+            check("checksums are carried along", release.checksumsURL == sumsURL)
+        } else {
+            check("a newer release is offered", false, "the feed did not decode")
+        }
+        if case .upToDate = runAsync({ try await service(payload: feed, version: "9.9.9").check() }) {
+            check("the same version reports up to date", true)
+        } else {
+            check("the same version reports up to date", false)
+        }
+
+        // A release with no zip cannot be installed, and says so instead of downloading a dmg and guessing.
+        let noZip = #"{"tag_name":"v9.9.9","assets":[]}"#
+        if case .unusable(let reason) = runAsync({ try await service(payload: noZip).check() }) {
+            check("a release without an archive is refused", reason.contains("no Bublr archive"), reason)
+        } else {
+            check("a release without an archive is refused", false)
+        }
+
+        // Checksum parsing is the gate on a tampered download; check the format we actually publish.
+        let sums = "abc123  Bublr-9.9.9.zip\ndef456  Bublr-9.9.9.dmg\n"
+        check("a checksum is found by file name",
+              UpdateService.checksum(in: sums, for: "Bublr-9.9.9.zip") == "abc123")
+        check("an unlisted file has no checksum",
+              UpdateService.checksum(in: sums, for: "other.zip") == nil)
+        check("shasum's binary marker is tolerated",
+              UpdateService.checksum(in: "aa11 *Bublr-1.zip\n", for: "Bublr-1.zip") == "aa11")
+
+        // End to end: a real zip, served by the stub, verified against a real checksum.
+        let download = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bublr-update-test-\(UUID().uuidString)", isDirectory: true)
+        if let built = makeFakeRelease(version: "9.9.9", bundleName: "Bublr.app", in: download) {
+            let release = UpdateRelease(version: built.version, notes: "", zipURL: built.zipURL, checksumsURL: built.sumsURL)
+            let transport = StaticTransport(payloads: built.payloads(nil))
+            let good = runAsyncResult { try await UpdateService(transport: transport).download(release, into: download.appendingPathComponent("ok")) }
+            check("a verified download unpacks into an app", good == nil, good.map { String(describing: $0) } ?? "")
+
+            let tampered = StaticTransport(payloads: built.payloads(String(repeating: "0", count: 64)))
+            let bad = runAsyncResult { try await UpdateService(transport: tampered).download(release, into: download.appendingPathComponent("bad")) }
+            check("a mismatched checksum is refused",
+                  (bad as? UpdateError).map { if case .badChecksum = $0 { return true } else { return false } } ?? false,
+                  String(describing: bad))
+
+            let unverified = UpdateRelease(version: release.version, notes: "", zipURL: release.zipURL, checksumsURL: nil)
+            let missing = runAsyncResult { try await UpdateService(transport: transport).download(unverified, into: download.appendingPathComponent("none")) }
+            check("a release without checksums is refused",
+                  (missing as? UpdateError).map { if case .noChecksum = $0 { return true } else { return false } } ?? false,
+                  String(describing: missing))
+
+            // The archive claims 9.9.9; a release announcing 9.9.8 must not install it.
+            let wrongVersion = UpdateRelease(version: "9.9.8", notes: "", zipURL: release.zipURL, checksumsURL: release.checksumsURL)
+            let mismatch = runAsyncResult { try await UpdateService(transport: transport).download(wrongVersion, into: download.appendingPathComponent("wrong")) }
+            check("a version mismatch between feed and archive is refused",
+                  (mismatch as? UpdateError).map { if case .versionMismatch = $0 { return true } else { return false } } ?? false,
+                  String(describing: mismatch))
+        } else {
+            check("the update fixtures were built", false)
+        }
+        try? FileManager.default.removeItem(at: download)
+
+        // The quiet-check schedule, which decides whether launch touches the network at all.
+        let prefURL = temporaryStoreURL("update-prefs")
+        let prefs = Workspace(storeURL: prefURL)
+        check("updates are checked automatically by default", prefs.autoCheckForUpdates)
+        check("a fresh install is due for a quiet check", prefs.shouldCheckForUpdatesQuietly())
+        prefs.recordUpdateCheck()
+        check("a check just now is not due again",
+              !prefs.shouldCheckForUpdatesQuietly(now: Date().addingTimeInterval(60)))
+        check("a check yesterday is due again",
+              prefs.shouldCheckForUpdatesQuietly(now: Date().addingTimeInterval(25 * 60 * 60)))
+        prefs.setAutoCheckForUpdates(false)
+        check("turning the preference off silences the launch check",
+              !prefs.shouldCheckForUpdatesQuietly(now: Date().addingTimeInterval(30 * 24 * 60 * 60)))
+        prefs.saveNow()
+        let reloadedPrefs = Workspace(storeURL: prefURL)
+        check("the update preference survives relaunch", !reloadedPrefs.autoCheckForUpdates)
+        try? FileManager.default.removeItem(at: prefURL.deletingLastPathComponent())
+
+        // Release notes are Markdown; the alert is not.
+        let summary = UpdateController.summary("## Added\n- Anchored chat\n\n- Live resize\n")
+        check("release notes are flattened for the alert",
+              summary == "Added\n• Anchored chat\n• Live resize", summary)
+    }
+
+    /// A real archive plus a real `SHA256SUMS`, so the download path is exercised rather than mocked.
+    private func makeFakeRelease(version: String, bundleName: String, in directory: URL) -> (version: String, zipURL: URL, sumsURL: URL, payloads: (String?) -> [String: Data])? {
+        let fileManager = FileManager.default
+        let bundle = directory.appendingPathComponent("stage/\(bundleName)", isDirectory: true)
+        let contents = bundle.appendingPathComponent("Contents", isDirectory: true)
+        let macos = contents.appendingPathComponent("MacOS", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: macos, withIntermediateDirectories: true)
+            try Data("#!/bin/sh\n".utf8).write(to: macos.appendingPathComponent("Bublr"))
+            let plist: [String: Any] = [
+                "CFBundleIdentifier": "com.nnnghia.bublr",
+                "CFBundleShortVersionString": version
+            ]
+            try (plist as NSDictionary).write(to: contents.appendingPathComponent("Info.plist"))
+        } catch {
+            return nil
+        }
+
+        let zip = directory.appendingPathComponent("Bublr-\(version).zip")
+        let ditto = Process()
+        ditto.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        ditto.arguments = ["-c", "-k", "--keepParent", bundle.path, zip.path]
+        try? ditto.run()
+        ditto.waitUntilExit()
+        guard let archive = try? Data(contentsOf: zip) else { return nil }
+
+        let zipURL = URL(string: "https://example.invalid/Bublr-\(version).zip")!
+        let sumsURL = URL(string: "https://example.invalid/SHA256SUMS")!
+        let digest = UpdateService.sha256(of: archive)
+        let version = version
+        return (version, zipURL, sumsURL, { override in
+            let hash = override ?? digest
+            return [
+                zipURL.absoluteString: archive,
+                sumsURL.absoluteString: Data("\(hash)  Bublr-\(version).zip\n".utf8)
+            ]
+        })
+    }
+
     // MARK: Overlay
 
     private func overlayTests() {
@@ -871,6 +1044,29 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
                 return reported == nil }())
         NotificationCenter.default.removeObserver(observer)
         window.orderOut(nil)
+    }
+
+    /// Runs async work to completion from the synchronous self-test.
+    private func runAsync<T>(_ work: @escaping () async throws -> T) -> T? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var value: T?
+        Task.detached {
+            value = try? await work()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return value
+    }
+
+    private func runAsyncResult<T>(_ work: @escaping () async throws -> T) -> Error? {
+        let semaphore = DispatchSemaphore(value: 0)
+        var failure: Error?
+        Task.detached {
+            do { _ = try await work() } catch { failure = error }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return failure
     }
 
     private func temporaryStoreURL(_ name: String) -> URL {
