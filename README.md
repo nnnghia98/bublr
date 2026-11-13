@@ -35,8 +35,8 @@ already trust keeps doing the talking.
 
 *Screenshots use sample data from `--seed-demo` / `--render-ui`; no real accounts.*
 
-> **Status:** 0.1, early. The app is used daily by its author, and `make test` covers the parts that break
-> silently. There are no notarised binaries yet — build from source.
+> **Status:** 1.0.0. The app is used daily by its author, and `make test` covers the parts that break
+> silently. There is no notarised binary yet — until there is, a downloaded build needs a right-click to open.
 
 ## Contents
 
@@ -87,6 +87,37 @@ Being explicit about what this is not saves everyone a pull request:
   to.
 
 ## Install
+
+### Download
+
+Grab `Bublr-<version>.dmg` from [Releases](https://github.com/nnnghia98/bublr/releases), open it, drag **Bublr**
+onto the Applications shortcut, and launch it. The DMG carries an ad-hoc signature and is **not notarised yet**,
+so the first launch needs a right-click → *Open* — or one command:
+
+```bash
+xattr -d com.apple.quarantine /Applications/Bublr.app
+```
+
+### Homebrew
+
+`make release` writes `dist/bublr.rb`, a cask pinned to that DMG's sha256. Drop it into a `homebrew-bublr` tap
+as `Casks/bublr.rb` and it installs with:
+
+```bash
+brew install --cask nnnghia98/bublr/bublr
+```
+
+### Updates
+
+Bublr updates itself from its own GitHub releases. *Check for Updates…* in the menu bar asks now; by default it
+also checks quietly once a day at launch and quietly renames that item to *Update to Bublr 1.1.0…* when something
+newer exists — no pop-up until you click it.
+
+An update is only installed if it verifies: the archive's SHA-256 must match the release's published
+`SHA256SUMS`, and the version inside the archive must match the version the release announced. Anything missing or
+mismatched is refused. The swap happens after Bublr quits, and it reopens itself.
+
+### From source
 
 Requirements: **macOS 14 (Sonoma) or newer**, **Xcode 15 or newer**, and
 [xcodegen](https://github.com/yonaskolb/XcodeGen).

@@ -88,6 +88,24 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        // Updates sit above settings: an available version is the one item a person should not have to hunt for.
+        let updateTitle = app.updates?.availableVersion.map { "Update to Bublr \($0)…" } ?? "Check for Updates…"
+        let checkNow = NSMenuItem(title: updateTitle, action: #selector(checkForUpdates), keyEquivalent: "")
+        checkNow.target = self
+        checkNow.isEnabled = app.updates?.isWorking != true
+        menu.addItem(checkNow)
+
+        let autoCheck = NSMenuItem(
+            title: "Check for updates automatically",
+            action: #selector(toggleAutoCheck),
+            keyEquivalent: ""
+        )
+        autoCheck.target = self
+        autoCheck.state = app.workspace.autoCheckForUpdates ? .on : .off
+        menu.addItem(autoCheck)
+
+        menu.addItem(.separator())
+
         let settings = NSMenuItem(title: "Bublr Settings…", action: #selector(showSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -112,7 +130,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(quit)
     }
 
-    /// `Bublr 0.1 · 8c2404a`, or without the hash when built from Xcode rather than `make`.
+    /// `Bublr 1.0.0 · 8c2404a`, or without the hash when built from Xcode rather than `make`.
     private var buildIdentity: String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "0"
@@ -122,6 +140,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     @objc private func toggleBubbles() { app.toggleBubbles() }
+
+    @objc private func checkForUpdates() {
+        // Menu actions arrive on the main thread; the updater is main-actor isolated.
+        MainActor.assumeIsolated { app.updates?.checkInteractively() }
+    }
+
+    @objc private func toggleAutoCheck() {
+        app.workspace.setAutoCheckForUpdates(!app.workspace.autoCheckForUpdates)
+    }
 
     @objc private func toggleCollapseAway() {
         app.workspace.setCollapseOnOutsideClick(!app.workspace.collapseOnOutsideClick)

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     let objectWillChange = ObservableObjectPublisher()
 
     private(set) var overlay: OverlayController!
+    private(set) var updates: UpdateController!
     private var statusBar: StatusBarController!
     private var hotKey: GlobalHotKey?
     private var welcomeWindow: NSWindow?
@@ -23,9 +24,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         overlay = OverlayController(workspace: workspace, sessions: sessions)
         overlay.start()
 
+        updates = UpdateController(workspace: workspace)
+
         statusBar = StatusBarController(app: self)
         hotKey = GlobalHotKey(key: UInt32(kVK_ANSI_B), modifiers: UInt32(cmdKey | optionKey)) { [weak self] in
             self?.toggleBubbles()
+        }
+
+        // Quiet check, at most once a day: no alert, just a menu bar entry that knows an update exists.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.updates.checkQuietlyIfDue()
         }
 
         if let signInIndex = CommandLine.arguments.firstIndex(of: "--demo-signin") {
