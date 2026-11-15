@@ -899,7 +899,91 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
             }
         }
         overlay.stop()
+        headPositionTests()
         dragTests()
+    }
+
+    // MARK: Head position
+
+    /// A head parked against the bottom edge has no room for its list, so the screen slides it up. What it
+    /// must not do is remember that slide: collapsing has to put the head back where the user parked it.
+    private func headPositionTests() {
+        guard let visible = (NSScreen.screens.first ?? NSScreen.main)?.visibleFrame else { return }
+        let storeURL = temporaryStoreURL("head-position")
+        let workspace = Workspace(storeURL: storeURL)
+        let head = workspace.addBubble(for: .telegram)
+        workspace.addAccount(provider: .telegram, label: "QA")
+        let parked = CGPoint(x: visible.midX - Metrics.collapsedSide / 2, y: visible.minY + 4)
+        workspace.setCollapsed(true, forBubble: head.id)
+        workspace.setOrigin(parked, forBubble: head.id)
+
+        let overlay = OverlayController(workspace: workspace, sessions: WebSessionStore())
+        overlay.start()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        guard let panel = overlay.panel(for: .provider(head.id)) else {
+            check("a parked head gets a panel", false)
+            overlay.stop()
+            return
+        }
+        let parkedOrigin = panel.frame.origin
+        check("a parked head sits where it was put",
+              abs(parkedOrigin.x - parked.x) < 1 && abs(parkedOrigin.y - parked.y) < 1,
+              "panel=\(parkedOrigin) parked=\(parked)")
+
+        workspace.setCollapsed(false, forBubble: head.id)
+        overlay.sync(animated: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        check("an opening head near the bottom stays on screen",
+              visible.contains(panel.frame), "frame=\(panel.frame) visible=\(visible)")
+        check("the screen, not the head, holds the list's bottom edge",
+              abs(panel.frame.minY - (visible.minY + 4)) < 1, "frame=\(panel.frame)")
+        let expandedHeight = Metrics.expandedHeight(accountCount: 1)
+        check("the open head stores the top it asked for, not the clamped one",
+              workspace.bubble(id: head.id).map {
+                  abs($0.origin.y + expandedHeight - (parkedOrigin.y + Metrics.collapsedSide)) < 1
+              } ?? false,
+              "stored=\(String(describing: workspace.bubble(id: head.id)?.origin))")
+
+        // Reopening the panel from the store is the relaunch path: it has to keep the same top too.
+        workspace.setProviderVisible(false, for: .telegram)
+        overlay.sync(animated: false)
+        workspace.setProviderVisible(true, for: .telegram)
+        overlay.sync(animated: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+        guard let reopened = overlay.panel(for: .provider(head.id)) else {
+            check("a reopened head gets its panel back", false)
+            overlay.stop()
+            return
+        }
+        check("a reopened head lands where the screen puts it",
+              abs(reopened.frame.minY - (visible.minY + 4)) < 1, "frame=\(reopened.frame)")
+
+        workspace.setCollapsed(true, forBubble: head.id)
+        overlay.sync(animated: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        check("collapsing returns the head to where it was parked",
+              abs(reopened.frame.origin.x - parkedOrigin.x) < 1
+                && abs(reopened.frame.origin.y - parkedOrigin.y) < 1,
+              "frame=\(reopened.frame) parked=\(parkedOrigin)")
+
+        // The reported flow: open the head's chat, then collapse from it. The head must come back to the
+        // same spot, not to the top the screen gave its list.
+        workspace.setCollapsed(false, forBubble: head.id)
+        overlay.sync(animated: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        if let account = workspace.accounts(for: .telegram).first {
+            workspace.setDrill(account.id, forBubble: head.id)
+            overlay.sync(animated: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        }
+        workspace.setCollapsed(true, forBubble: head.id)
+        overlay.sync(animated: false)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        check("closing the head from its chat leaves it in the same place",
+              abs(reopened.frame.origin.y - parkedOrigin.y) < 1,
+              "frame=\(reopened.frame) parked=\(parkedOrigin)")
+        overlay.stop()
+        try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent())
     }
 
     // MARK: Drag gesture
