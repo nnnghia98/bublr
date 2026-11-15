@@ -315,8 +315,14 @@ final class OverlayController {
     private var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var moveObservers: [PanelKind: NSObjectProtocol] = [:]
-    /// The top edge each bubble should keep while it grows or shrinks downwards.
+    /// The top edge each bubble should keep while it grows or shrinks downwards. This is the top the bubble
+    /// asked for, which is not always the top the screen granted: a head parked near the bottom edge is slid
+    /// up to fit its list, and remembering that slid top is what made a collapsed head jump.
     private var topAnchors: [PanelKind: CGFloat] = [:]
+    /// The last frame this controller placed on a panel. A `didMove` that matches it is the controller's own
+    /// placement — a screen clamp, or an animation's landing — not the user's choice, so it must not become
+    /// the stored position.
+    private var layoutRects: [PanelKind: CGRect] = [:]
     private var snapping: Set<PanelKind> = []
     /// Panels currently under the user's pointer. Layout stays out of their way until the drag ends.
     private var userDragging: Set<PanelKind> = []
@@ -374,6 +380,7 @@ final class OverlayController {
                 return
             }
             self.topAnchors[panel.kind] = window.frame.maxY
+            self.layoutRects[panel.kind] = window.frame
             self.persist(window.frame, for: panel.kind)
             self.snapIfNeeded(window)
         }
@@ -453,6 +460,7 @@ final class OverlayController {
         panels.values.forEach { $0.close() }
         panels.removeAll()
         transitions.removeAll()
+        layoutRects.removeAll()
         isStarted = false
     }
 
@@ -468,6 +476,7 @@ final class OverlayController {
             panel.close()
             panels.removeValue(forKey: kind)
             topAnchors.removeValue(forKey: kind)
+            layoutRects.removeValue(forKey: kind)
             snapping.remove(kind)
             userDragging.remove(kind)
         }
@@ -528,10 +537,14 @@ final class OverlayController {
 
         // Place the fresh panel exactly once, so the always-on-top window never appears at (0,0).
         if let target = targetLayout(for: kind) {
-            let rect = clampedRect(CGRect(origin: target.origin, size: target.size), preferred: target.origin)
+            let intended = CGRect(origin: target.origin, size: target.size)
+            let rect = clampedRect(intended)
             panel.setFrame(rect, display: false)
-            topAnchors[kind] = rect.maxY
-            persist(rect, for: kind)
+            layoutRects[kind] = rect
+            // The anchor is the top the bubble asked for, not the one the screen granted. A head parked at
+            // the bottom edge keeps the top a collapse will return to.
+            topAnchors[kind] = intended.maxY
+            persist(intended, for: kind)
         }
 
         NotificationCenter.default.addObserver(
@@ -553,7 +566,10 @@ final class OverlayController {
                 self.transitions.removeValue(forKey: kind)
             }
             guard !self.snapping.contains(kind), !self.userDragging.contains(kind) else { return }
+            // A frame this controller placed itself is a screen clamp or a transition landing, not a move.
+            guard !self.placedByUs(kind, panel.frame) else { return }
             self.topAnchors[kind] = panel.frame.maxY
+            self.layoutRects[kind] = panel.frame
             self.persist(panel.frame, for: kind)
             if case .provider(let bubbleID) = kind {
                 self.reanchorChat(bubbleID: bubbleID)
@@ -573,6 +589,7 @@ final class OverlayController {
             workspace.setFloatingSize(size, for: id)
         }
         topAnchors[panel.kind] = panel.frame.maxY
+        layoutRects[panel.kind] = panel.frame
     }
 
     private func handleEscape(_ panel: BubblePanel) {
@@ -638,7 +655,7 @@ final class OverlayController {
 
         if case .chat = kind {
             // Origin comes from the head, so there is no anchor to preserve and nothing to store.
-            let rect = clampedRect(CGRect(origin: target.origin, size: target.size), preferred: target.origin)
+            let rect = clampedRect(CGRect(origin: target.origin, size: target.size))
             if let pending = runningTransition(kind), sameRect(pending, rect) { return }
             let sizeChanged = abs(current.size.width - rect.size.width) > 0.5
                 || abs(current.size.height - rect.size.height) > 0.5
@@ -653,16 +670,19 @@ final class OverlayController {
             return
         }
 
-        // The user can drag a panel at any time; that move becomes the new anchor.
-        if !snapping.contains(kind), current.size != .zero,
+        // The user can drag a panel at any time; that move becomes the new anchor. A frame this controller
+        // placed itself is not a move, even when a tall bubble near a screen edge sits higher than the top
+        // it asked for — adopting that clamped top is exactly what made the head jump.
+        if !snapping.contains(kind), current.size != .zero, !placedByUs(kind, current),
            let stored = topAnchors[kind], abs(current.maxY - stored) > 0.5 {
             topAnchors[kind] = current.maxY
         }
         let top = topAnchors[kind] ?? (target.origin.y + target.size.height)
 
         // Keep the top-left corner pinned while the bubble grows or shrinks downwards.
-        let origin = CGPoint(x: target.origin.x, y: top - target.size.height)
-        let rect = clampedRect(CGRect(origin: origin, size: target.size), preferred: origin)
+        let intended = CGRect(x: target.origin.x, y: top - target.size.height,
+                              width: target.size.width, height: target.size.height)
+        let rect = clampedRect(intended)
 
         // A pass that recomputes the target an in-flight transition is already heading for has nothing to
         // do. Restarting it would cancel the animation and retarget it from a half-sized frame.
@@ -672,7 +692,10 @@ final class OverlayController {
         let moved = abs(current.origin.x - rect.origin.x) > 0.5 || abs(current.origin.y - rect.origin.y) > 0.5
 
         if sizeChanged || moved {
-            topAnchors[kind] = rect.maxY
+            // The anchor stays the top the bubble asked for, never the top the screen granted, so shrinking
+            // back returns it to where it was parked before the screen had to slide it.
+            topAnchors[kind] = top
+            layoutRects[kind] = rect
             // Only a size change is worth animating: a clamp or a snap is a correction, not a transition,
             // and dragging must track the pointer with no lag at all.
             let duration = Motion.duration(from: current.size, to: rect.size, reduceMotion: Motion.reduceMotion)
@@ -681,7 +704,7 @@ final class OverlayController {
             } else {
                 panel.setFrame(rect, display: true)
             }
-            persist(rect, for: kind)
+            persist(intended, for: kind)
         }
     }
 
@@ -745,20 +768,23 @@ final class OverlayController {
         let head = panels[.provider(bubbleID)]?.frame ?? CGRect(origin: state.origin, size: headSize(for: state))
         let size = CGSize(width: max(360, state.chatSize.width), height: max(460, state.chatSize.height))
         let rect = Anchoring.rect(head: head, size: size, anchor: state.anchor, screen: visibleFrame(near: head))
-        let target = clampedRect(rect, preferred: rect.origin)
+        let target = clampedRect(rect)
         guard !sameRect(panel.frame, target) else { return }
         panel.setFrame(target, display: true)
     }
 
-    private func clampedRect(_ rect: CGRect, preferred: CGPoint) -> CGRect {
-        let screen = NSScreen.screens.first { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(preferred) }
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-        guard let visible = screen?.visibleFrame else { return rect }
+    private func clampedRect(_ rect: CGRect) -> CGRect {
+        let visible = visibleFrame(near: rect)
         var result = rect
         result.origin.x = min(max(rect.origin.x, visible.minX + 4), visible.maxX - rect.width - 4)
         result.origin.y = min(max(rect.origin.y, visible.minY + 4), visible.maxY - rect.height - 4)
         return result
+    }
+
+    /// Whether `frame` is a placement this controller made, rather than something that happened to the panel.
+    private func placedByUs(_ kind: PanelKind, _ frame: CGRect) -> Bool {
+        guard let placed = layoutRects[kind] else { return false }
+        return sameRect(placed, frame)
     }
 
     private func snapIfNeeded(_ window: NSWindow) {
@@ -776,6 +802,7 @@ final class OverlayController {
         snapping.insert(panel.kind)
         panel.setFrame(frame, display: true)
         topAnchors[panel.kind] = frame.maxY
+        layoutRects[panel.kind] = frame
         persist(frame, for: panel.kind)
         snapping.remove(panel.kind)
     }

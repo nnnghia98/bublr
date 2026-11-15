@@ -56,6 +56,9 @@ First release with the shape the app is meant to keep.
 - A state file written by an older build no longer risks being silently replaced by an empty workspace when a new
   key is missing.
 - A duplicated head inherits its source's side and list height.
+- **A bubble no longer jumps when you close its list or chat near the bottom of the screen.** A head
+  parked against the bottom edge is slid up to make room for the list it opens; it now remembers the top
+  it was parked at, so collapsing returns it exactly there instead of a bubble-height higher.
 
 ## [0.1] — 2026-11-04
 
