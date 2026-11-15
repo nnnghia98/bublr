@@ -30,11 +30,14 @@ struct ProviderBubbleRoot: View {
     }
 }
 
-/// The panel beside the head: a chat, or the sign-in page that leads to one.
+/// The panel beside the head: a chat, and only a chat.
 ///
 /// Separate from `ProviderBubbleRoot` on purpose. The head used to grow into the chat and shrink back,
 /// which cost it its own identity — badge, name, the thing you were dragging — for as long as a chat was
 /// open. Now the head stays put and this opens next to it.
+///
+/// Sign-in used to borrow this panel too. It lives in the settings window now, so a half-finished sign-in
+/// can never take over a bubble that is meant to show conversations.
 struct ChatPanelRoot: View {
     @EnvironmentObject var workspace: Workspace
     let providerID: ProviderID
@@ -43,24 +46,12 @@ struct ChatPanelRoot: View {
     var body: some View {
         if !providerID.spec.runsInWebKit {
             UnsupportedProviderCard(provider: providerID)
-        } else if let pending = pendingSignIn {
-            SignInSurface(pending: pending)
-                .id(pending.account.id)
         } else if let drill = workspace.bubble(id: bubbleID)?.drilledAccountID,
                   workspace.account(id: drill) != nil {
             ChatSurface(accountID: drill, providerID: providerID, bubbleID: bubbleID)
                 .id(drill)
         } else {
             Color.clear
-        }
-    }
-
-    /// A sign-in belongs to the head that opened it; two heads must never show one web view.
-    private var pendingSignIn: Workspace.PendingSignIn? {
-        let primary = workspace.bubble(for: providerID)?.id
-        return workspace.pendingSignIns.first { pending in
-            guard pending.account.provider == providerID else { return false }
-            return (pending.bubbleID ?? primary) == bubbleID
         }
     }
 }
@@ -174,7 +165,6 @@ struct AccountCollapsedBubble: View {
 
 struct ProviderBubbleList: View {
     @EnvironmentObject var workspace: Workspace
-    @EnvironmentObject var sessions: WebSessionStore
     let providerID: ProviderID
     var bubbleID: UUID? = nil
 
@@ -223,9 +213,6 @@ struct ProviderBubbleList: View {
                 Feedback.tap()
                 if let headID { workspace.setCollapsed(true, forBubble: headID) }
             }
-            BubbleIconButton(systemName: "plus.circle.fill", size: 26, help: "Add another account", tint: spec.tint) {
-                addAccount()
-            }
         }
         .padding(.horizontal, 12)
         .frame(height: Metrics.header)
@@ -245,19 +232,9 @@ struct ProviderBubbleList: View {
                 }
             }
             Divider()
-            if workspace.isProviderShown(providerID) {
-                Button("Hide \(providerID.spec.name) bubble") {
-                    workspace.setProviderVisible(false, for: providerID)
-                }
-            } else {
-                Button("Show \(providerID.spec.name) bubble") {
-                    workspace.setProviderVisible(true, for: providerID)
-                }
-            }
-            // Hiding is per provider, so a duplicate head could otherwise never be retired: it would stay
-            // behind the same switch as the head it duplicates. Offered only when removing this one leaves
-            // the provider's other heads in place, so there is no way to delete a provider's last window by
-            // accident from here.
+            Button("Manage accounts in Settings…") { openSettings() }
+            // Hiding and removing providers belong to Settings, where a provider is added. What is left
+            // here is the pair of window actions a second head needs: make one, retire one.
             if workspace.bubbles(for: providerID).count > 1 {
                 Button("Remove this bubble", role: .destructive) { removeHead() }
             }
@@ -295,16 +272,6 @@ struct ProviderBubbleList: View {
                             open(account)
                         } onPopOut: {
                             workspace.setFloating(!account.isFloating, for: account.id)
-                        } onRename: {
-                            Prompt.rename(current: account.label) { newName in
-                                workspace.renameAccount(id: account.id, label: newName)
-                            }
-                        } onKeepSignedIn: {
-                            changeKeepSignedIn(for: account)
-                        } onSignOut: {
-                            signOut(account)
-                        } onRemove: {
-                            remove(account)
                         }
                     }
                 }
@@ -319,22 +286,24 @@ struct ProviderBubbleList: View {
         }
     }
 
+    /// A bubble with nothing to show says where accounts come from now, instead of opening a sign-in page
+    /// in a window that is meant to carry conversations.
     private var emptyState: some View {
         VStack(spacing: 8) {
             BrandMark(provider: providerID, size: 34)
                 .opacity(0.9)
-            Text("Connect \(spec.shortName)")
+            Text("No \(spec.shortName) chats yet")
                 .font(.bubbleTitle(13))
-            Text("Link your first account. Bublr opens \(spec.name)'s own sign-in — QR or password, whichever the provider supports.")
+            Text("Add an account in Bublr Settings. Its chats appear here, and the provider's own sign-in page opens there.")
                 .font(.bubbleCaption(10.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
             Button {
-                addAccount()
+                openSettings()
             } label: {
-                Label("Add account", systemImage: "plus")
+                Label("Open Bublr Settings", systemImage: "gearshape")
             }
             .buttonStyle(PrimaryButtonStyle(tint: spec.tint))
             .padding(.top, 2)
@@ -356,15 +325,15 @@ struct ProviderBubbleList: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button {
-                addAccount()
+                openSettings()
             } label: {
-                Label("Add account", systemImage: "plus")
+                Label("Manage in Settings…", systemImage: "gearshape")
             }
             .buttonStyle(GhostButtonStyle(tint: spec.tint))
 
             Spacer()
 
-            Text(accounts.count > 1 ? "\(accounts.count) stacked" : "Drag the top of this bubble")
+            Text(accounts.count > 1 ? "\(accounts.count) accounts" : "Drag the top of this bubble")
                 .font(.bubbleCaption(9.8))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
@@ -376,19 +345,17 @@ struct ProviderBubbleList: View {
 
     // MARK: Actions
 
-    private func addAccount() {
-        let account = workspace.addAccount(provider: providerID, label: "")
-        workspace.beginSignIn(account: account, method: spec.defaultMethod, bubbleID: headID)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
+    /// A row that has nothing to show yet goes to the one place that can sign it in.
     private func open(_ account: Account) {
         if account.status == .needsSignIn {
-            workspace.beginSignIn(account: account, method: spec.defaultMethod, bubbleID: headID)
-            NSApp.activate(ignoringOtherApps: true)
+            AppDelegate.presentSignIn(accountID: account.id)
         } else if let headID {
             workspace.setDrill(account.id, forBubble: headID)
         }
+    }
+
+    private func openSettings() {
+        AppDelegate.presentSettings(provider: providerID)
     }
 
     /// Retires this head only. The accounts and the duplicate's siblings are untouched.
@@ -402,56 +369,16 @@ struct ProviderBubbleList: View {
         guard let headID, workspace.duplicateBubble(id: headID) != nil else { return }
         Feedback.tap()
     }
-
-    /// Toggling always clears the local session, because the storage mode only applies to a new one.
-    private func changeKeepSignedIn(for account: Account) {
-        let turningOn = !account.keepsSession
-        Prompt.confirm(
-            title: turningOn ? "Keep \(account.label) signed in?" : "Stop keeping \(account.label) signed in?",
-            message: turningOn
-                ? "\(spec.name) will be allowed to store its own session cookies on this Mac, so the account survives a restart. Your password is never stored either way."
-                : "This clears the local \(spec.name) session for this account. You'll sign in again, and the session will end when Bublr quits.",
-            action: turningOn ? "Keep me signed in" : "Sign out"
-        ) {
-            workspace.setKeepSignedIn(turningOn, for: account.id)
-            sessions.discard(accountID: account.id)
-            workspace.signOut(accountID: account.id)
-        }
-    }
-
-    private func signOut(_ account: Account) {
-        Prompt.confirm(
-            title: "Sign out of \(account.label)?",
-            message: "This clears the local \(spec.name) session for this account. Your \(spec.name) account itself is untouched.",
-            action: "Sign out"
-        ) {
-            sessions.discard(accountID: account.id)
-            workspace.signOut(accountID: account.id)
-        }
-    }
-
-    private func remove(_ account: Account) {
-        Prompt.confirm(
-            title: "Remove \(account.label)?",
-            message: "The account is unlinked from Bublr and its local session is erased. Your \(spec.name) account itself is untouched.",
-            action: "Remove"
-        ) {
-            sessions.discard(accountID: account.id)
-            workspace.removeAccount(id: account.id)
-        }
-    }
 }
 
 // MARK: - Account row
 
+/// One chat, as the bubble lists it. Opening and popping out are the only things a bubble does with an
+/// account; everything that changes the account lives in Settings.
 struct AccountRow: View {
     let account: Account
     var onOpen: () -> Void
     var onPopOut: () -> Void
-    var onRename: () -> Void
-    var onKeepSignedIn: () -> Void
-    var onSignOut: () -> Void
-    var onRemove: () -> Void
 
     @State private var hover = false
 
@@ -468,7 +395,7 @@ struct AccountRow: View {
                         .lineLimit(1)
                     HStack(spacing: 4) {
                         StatusDot(color: statusColor)
-                        Text(statusText)
+                        Text(account.statusText)
                             .font(.bubbleCaption(10))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -501,34 +428,11 @@ struct AccountRow: View {
         .contextMenu {
             Button("Open") { onOpen() }
             Button(account.isFloating ? "Dock into \(spec.name)" : "Pop out as bubble") { onPopOut() }
-            Button("Rename…") { onRename() }
-            Divider()
-            Button(account.keepsSession ? "Stop keeping me signed in…" : "Keep me signed in on this Mac…") {
-                onKeepSignedIn()
-            }
-            Button("Sign out and clear session…") { onSignOut() }
-            Divider()
-            Button("Remove…", role: .destructive) { onRemove() }
         }
     }
 
     private var statusColor: Color {
         if account.status == .needsSignIn { return .orange }
         return account.unread > 0 ? spec.tint : .green
-    }
-
-    private var statusText: String {
-        if account.status == .needsSignIn { return "Sign-in needed" }
-        if !account.keepsSession { return "Signed in · this session only" }
-        if account.unread > 0 { return "\(account.unread) new message\(account.unread == 1 ? "" : "s")" }
-        return "Signed in · \(relative(account.lastActivity))"
-    }
-
-    private func relative(_ date: Date) -> String {
-        let seconds = Date().timeIntervalSince(date)
-        if seconds < 60 { return "just now" }
-        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
-        if seconds < 86_400 { return "\(Int(seconds / 3600))h ago" }
-        return "\(Int(seconds / 86_400))d ago"
     }
 }

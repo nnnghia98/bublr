@@ -28,12 +28,28 @@ First release with the shape the app is meant to keep.
   before anything is replaced; the swap happens after the app quits and it reopens itself.
 - `make release` builds a signed-if-you-have-certificates DMG and a zip (the zip is what the updater installs),
   with checksums and a Homebrew cask.
+- **Duplicate a provider bubble.** Right-click a bubble's header, or use *Add another bubble* in Settings, to
+  open a second head over the same accounts — one collapsed on another Space while the other watches unread,
+  both signed in as the same logins. A duplicate shares the account list and unread count with its source but
+  keeps its own position, size and collapse state. Only one head can open a given account's chat at a time,
+  because an account has exactly one web view.
+- **Settings is the one place to add providers and accounts.** Pick a provider in the sidebar, add its
+  bubble, and add accounts from there. Each provider's accounts are listed with their status, unread count
+  and a ⋯ menu for rename, *Keep me signed in*, sign out and remove.
 
 ### Changed
 
 - A Debug build carries its own bundle id (`com.nnnghia.bublr.dev`) and its own state file, so it can never
   answer to the installed app's name or fight it over one workspace.
 - The onboarding copy names the providers the app can actually host, derived from the catalogue.
+- **Sign-in happens in Settings, not in a bubble.** The provider's own page opens in a sheet over the
+  Settings window, so authentication never takes over a bubble that is showing conversations. A row that
+  needs a sign-in, and a chat whose session ended, both open that sheet.
+- **A bubble now carries chats only.** The header's add-account button, the account context menu's rename,
+  session and remove items, the provider hide/show item and the menu bar's *Add provider bubble*, *Duplicate
+  provider bubble* and *New account…* items moved to Settings. What remains on a bubble is opening a chat,
+  popping one out, collapse, drag, resize, the chat's side, and duplicating or retiring that head.
+- Bubbles are no longer pre-seeded on first launch: the Settings window is where a provider first gets one.
 
 ### Fixed
 

@@ -32,9 +32,9 @@ enum UIRenderer {
         workspace.setUnread(7, for: family.id)
 
         render(ProviderBubbleList(providerID: .telegram)
-                .environmentObject(workspace)
-                .environmentObject(sessions),
-               size: CGSize(width: 332, height: 290), name: "bubble-telegram", dir: dir)
+                .environmentObject(workspace),
+               size: CGSize(width: Metrics.bubbleWidth, height: Metrics.expandedHeight(accountCount: 3)),
+               name: "bubble-telegram", dir: dir)
 
         render(ProviderCollapsedBubble(provider: .zalo, unread: 7, onExpand: {})
                 .environmentObject(workspace)
@@ -46,21 +46,24 @@ enum UIRenderer {
                 .environmentObject(sessions),
                size: CGSize(width: 396, height: 648), name: "chat-telegram", dir: dir)
 
+        // Settings first: a pending sign-in would otherwise present its sheet over this render.
+        let app = AppDelegate()
+        render(SettingsView()
+                .environmentObject(workspace)
+                .environmentObject(sessions)
+                .environmentObject(app)
+                .frame(width: 900, height: 660),
+               size: CGSize(width: 900, height: 660), name: "settings", dir: dir)
+
         var privateAccount = Account(provider: .telegram, label: "Personal")
         privateAccount.keepSignedIn = false
         workspace.beginSignIn(account: privateAccount, method: .qr)
         if let pending = workspace.pendingSignIns.last {
-            render(SignInSurface(pending: pending)
+            render(SignInSurface(pending: pending, embedded: true)
                     .environmentObject(workspace)
                     .environmentObject(sessions),
-                   size: CGSize(width: 396, height: 648), name: "signin", dir: dir)
+                   size: CGSize(width: 440, height: 640), name: "signin", dir: dir)
         }
-
-        render(WelcomeView()
-                .environmentObject(workspace)
-                .environmentObject(AppDelegate())
-                .frame(width: 860, height: 660),
-               size: CGSize(width: 860, height: 660), name: "welcome", dir: dir)
 
         for spec in ProviderCatalog.all {
             render(BrandMark(provider: spec.id, size: 44)

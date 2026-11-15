@@ -6,6 +6,9 @@ struct SignInSurface: View {
     @EnvironmentObject var sessions: WebSessionStore
 
     let pending: Workspace.PendingSignIn
+    /// Settings shows this as a sheet, where the window already owns focus, dragging and resizing. The
+    /// bubble's own sign-in chrome only makes sense in a borderless overlay panel.
+    var embedded: Bool = false
 
     @State private var session: WebSession?
     @State private var method: LoginMethod
@@ -17,8 +20,9 @@ struct SignInSurface: View {
     /// `session` is created on appear, so its state is sampled rather than observed through a wrapper view.
     private let ticker = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
 
-    init(pending: Workspace.PendingSignIn) {
+    init(pending: Workspace.PendingSignIn, embedded: Bool = false) {
         self.pending = pending
+        self.embedded = embedded
         _method = State(initialValue: pending.method)
         _keepSignedIn = State(initialValue: pending.account.keepsSession)
     }
@@ -43,25 +47,33 @@ struct SignInSurface: View {
                 .padding(.bottom, 12)
                 .padding(.top, 8)
             }
-            .bubbleBackground(corner: 26, tint: spec.tint)
+            .bubbleBackground(corner: embedded ? 18 : 26, tint: spec.tint)
             // The sign-in page is a web view like any chat, and some providers ask for a QR code that needs
-            // the room. Same edges, same stored size.
-            .overlay(EdgeResizeHandle(
-                minSize: CGSize(width: 360, height: 460),
-                maxSize: CGSize(width: 980, height: 1500)
-            ))
+            // the room. Same edges, same stored size — but only in the overlay, where the panel is the frame.
+            .overlay {
+                if !embedded {
+                    EdgeResizeHandle(
+                        minSize: CGSize(width: 360, height: 460),
+                        maxSize: CGSize(width: 980, height: 1500)
+                    )
+                }
+            }
 
             if success {
                 successOverlay
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
-        .background(WindowAccessor { window in
-            if let window {
-                NSApp.activate(ignoringOtherApps: true)
-                window.makeKey()
+        .background {
+            if !embedded {
+                WindowAccessor { window in
+                    if let window {
+                        NSApp.activate(ignoringOtherApps: true)
+                        window.makeKey()
+                    }
+                }
             }
-        })
+        }
         .onAppear(perform: start)
         .onReceive(ticker) { _ in
             authState = session?.authState ?? .unknown
@@ -70,28 +82,49 @@ struct SignInSurface: View {
 
     // MARK: Header
 
+    @ViewBuilder
     private var header: some View {
-        HStack(spacing: 10) {
-            SkinnyCloseButton {
-                cancel()
+        if embedded {
+            HStack(spacing: 10) {
+                BrandMark(provider: pending.account.provider, size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Link \(providerName)")
+                        .font(.bubbleTitle(15))
+                    Text("\(pending.account.label) · stays on your Mac")
+                        .font(.bubbleCaption(10.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Button("Cancel") { cancel() }
+                    .buttonStyle(GhostButtonStyle())
+                    .controlSize(.small)
             }
-            DragRegion {
-                HStack(spacing: 10) {
-                    BrandMark(provider: pending.account.provider, size: 32)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Link \(providerName)")
-                            .font(.bubbleTitle(15))
-                        Text("\(pending.account.label) · stays on your Mac")
-                            .font(.bubbleCaption(10.5))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+            .padding(.horizontal, 14)
+            .frame(height: 58)
+        } else {
+            HStack(spacing: 10) {
+                SkinnyCloseButton {
+                    cancel()
+                }
+                DragRegion {
+                    HStack(spacing: 10) {
+                        BrandMark(provider: pending.account.provider, size: 32)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Link \(providerName)")
+                                .font(.bubbleTitle(15))
+                            Text("\(pending.account.label) · stays on your Mac")
+                                .font(.bubbleCaption(10.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
                 }
             }
+            .padding(.horizontal, 12)
+            .frame(height: 58)
         }
-        .padding(.horizontal, 12)
-        .frame(height: 58)
     }
 
     // MARK: Method picker
@@ -309,24 +342,16 @@ struct SignInSurface: View {
         Feedback.tap()
         workspace.setAccountStatus(id: pending.account.id, status: .connected)
         workspace.clearUnread(accountID: pending.account.id)
+        // Closing the sheet is the end of the job: the account is linked, its chats are in its bubble, and
+        // opening one from here would yank the user out of Settings mid-edit.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
             workspace.finishSignIn(accountID: pending.account.id)
-            if let owner = pending.bubbleID {
-                workspace.setDrill(pending.account.id, forBubble: owner)
-            } else {
-                workspace.setDrill(pending.account.id, for: pending.account.provider)
-            }
         }
     }
 
     private func cancel() {
         session?.purpose = .chatting
         workspace.cancelSignIn(accountID: pending.account.id)
-        let owner = pending.bubbleID.flatMap { workspace.bubble(id: $0) }
-            ?? workspace.bubble(for: pending.account.provider)
-        if let owner, owner.collapsed {
-            workspace.setCollapsed(false, forBubble: owner.id)
-        }
     }
 }
 

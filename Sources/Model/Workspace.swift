@@ -47,6 +47,23 @@ struct Account: Identifiable, Codable, Equatable {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "?" : String(trimmed.prefix(1)).uppercased()
     }
+
+    /// The one-line state shown beside the account, in a bubble and in settings. Written once so the two
+    /// cannot start disagreeing about the same account.
+    var statusText: String {
+        if status == .needsSignIn { return "Sign-in needed" }
+        if !keepsSession { return "Signed in · this session only" }
+        if unread > 0 { return unread == 1 ? "1 new message" : "\(unread) new messages" }
+        return "Signed in · \(Account.relative(lastActivity))"
+    }
+
+    static func relative(_ date: Date) -> String {
+        let seconds = Date().timeIntervalSince(date)
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600))h ago" }
+        return "\(Int(seconds / 86_400))d ago"
+    }
 }
 
 // MARK: - Provider bubble
@@ -252,9 +269,6 @@ final class Workspace: ObservableObject {
         var account: Account
         var method: LoginMethod
         var showsChooser: Bool
-        /// The head that opened the sign-in. Sibling heads stay out of the way, so one web view can
-        /// never be shown twice. `nil` means the provider's first head.
-        var bubbleID: UUID?
     }
 
     init(storeURL: URL? = nil) {
@@ -515,20 +529,15 @@ final class Workspace: ObservableObject {
         scheduleSave()
     }
 
-    /// The account whose chat or sign-in belongs to this head's detail panel, if one is open.
+    /// The account whose chat belongs to this head's detail panel, if one is open.
     ///
     /// A chat is one `WKWebView` and can live in exactly one window, so this is also what stops two heads
-    /// from showing the same conversation.
+    /// from showing the same conversation. Sign-in is not part of it: authentication happens in the
+    /// settings window, so a half-finished sign-in never takes over a bubble.
     func detailAccountID(forBubble bubbleID: UUID) -> UUID? {
         guard let bubble = bubble(id: bubbleID) else { return nil }
-        if let drill = bubble.drilledAccountID, account(id: drill) != nil {
-            return drill
-        }
-        let primary = self.bubble(for: bubble.provider)?.id
-        let pending = pendingSignIns.first { pending in
-            pending.account.provider == bubble.provider && (pending.bubbleID ?? primary) == bubbleID
-        }
-        return pending?.account.id
+        guard let drill = bubble.drilledAccountID, account(id: drill) != nil else { return nil }
+        return drill
     }
 
     func setAnchor(_ anchor: ChatAnchor, forBubble bubbleID: UUID) {
@@ -723,10 +732,12 @@ final class Workspace: ObservableObject {
 
     // MARK: Pending sign-in
 
-    func beginSignIn(account: Account, method: LoginMethod, bubbleID: UUID? = nil) {
+    /// Starts the provider's own sign-in for an account. The settings window is the only surface that
+    /// shows it, so there is no head to attribute it to.
+    func beginSignIn(account: Account, method: LoginMethod) {
         pendingSignIns.removeAll { $0.account.id == account.id }
         pendingSignIns.append(
-            PendingSignIn(account: account, method: method, showsChooser: false, bubbleID: bubbleID)
+            PendingSignIn(account: account, method: method, showsChooser: false)
         )
     }
 
