@@ -884,6 +884,18 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
                 workspace.setCollapsed(false, forBubble: head.id)
                 overlay.sync(animated: false)
                 RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+                // Sign-in moved to the settings window: a pending sign-in must not borrow the bubble's
+                // chat panel nor report itself as an account whose chat is open.
+                if let account = workspace.accounts(for: .telegram).first {
+                    workspace.beginSignIn(account: account, method: .qr)
+                    overlay.sync(animated: false)
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+                    check("a pending sign-in opens no chat panel", overlay.panel(for: .chat(head.id)) == nil)
+                    check("a pending sign-in does not take over the head",
+                          workspace.detailAccountID(forBubble: head.id) == nil)
+                    workspace.cancelSignIn(accountID: account.id)
+                }
             }
         }
         overlay.stop()

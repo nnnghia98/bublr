@@ -20,7 +20,7 @@
   <img src="https://github.com/nnnghia98/bublr/actions/workflows/ci.yml/badge.svg" alt="CI status">
 </p>
 
-![The Bublr welcome window](docs/hero-welcome.png)
+![The Bublr Settings window](docs/hero-welcome.png)
 
 Bublr is a chat-head overlay for macOS: each conversation is a small bubble floating above your work, and
 you put it where you want it. It is an AppKit + SwiftUI menu-bar agent (`LSUIElement`) — no Dock icon — and
@@ -137,32 +137,34 @@ the menu bar.
 
 ## Using it
 
-1. The welcome window lists providers. Pick one — its bubble appears at the right edge of the screen with the
-   provider's own sign-in page already open.
-2. Sign in the way the provider allows (QR or password). Bublr notices by itself and drops you into the chat.
-3. **Add account** on a bubble stacks another account for that provider, with its own isolated session.
-   **Duplicate bubble** (right-click the header, or the menu bar) opens a second head over the same
-   accounts when you want the same chats visible in two places.
+Settings is the one place providers and accounts are added, and the only place sign-in happens. A bubble
+carries conversations and nothing else: no plus button, no account menu.
+
+1. Open **Bublr Settings** (⌘,). Pick a provider in the sidebar and press **Add bubble** — its bubble appears
+   at the right edge of the screen.
+2. Press **Add account**. The provider's own sign-in page opens in a sheet over Settings, QR or password
+   whichever it supports. Bublr notices when you are in by itself and closes the sheet.
+3. **Add account** again stacks another account for that provider, with its own isolated session. **Add
+   another bubble** in the provider's ⋯ menu opens a second head over the same accounts when you want the
+   same chats visible in two places.
 4. Drag a bubble by its header (or by the circle when collapsed); collapse with the minus button; pop an
    account out from its context menu. Clicking anywhere outside the bubbles collapses them all — turn that
    off with *Collapse bubbles when I click away* in the menu bar.
-5. A provider with no accounts has no bubble on the overlay; right-click a bubble's header to hide or show
-   that provider by hand.
-6. Clicking an account opens its chat **beside** the head rather than in place of it, so the head keeps its
-   badge, its name and its handle. Drag the head and the chat comes with it; *Chat opens* in the same
+5. Clicking an account opens its chat **beside** the head rather than in place of it, so the head keeps its
+   badge, its name and its handle. Drag the head and the chat comes with it; *Chat opens* in the bubble's
    right-click menu pins the side, or leaves it automatic.
-7. Drag any edge or corner of a chat or an account list to resize it, live. Sizes stick per bubble.
+6. Drag any edge or corner of a chat or an account list to resize it, live. Sizes stick per bubble.
 
 | Action | How |
 | --- | --- |
 | Show / hide every bubble | ⌥⌘B, or the menu bar item |
-| Add a provider bubble | Menu bar → *Add provider bubble* |
-| Duplicate a bubble | Right-click the bubble header, or menu bar → *Duplicate provider bubble* |
-| Start a new account | Menu bar → *New account…* |
-| Keep me signed in / sign out | Right-click an account in a bubble |
-| Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
-| Hide or show one provider | Right-click the bubble header → *Hide … bubble* / *Show … bubble* |
+| Add a provider bubble | Settings → pick provider → *Add bubble* |
+| Start a new account | Settings → *Add account*, or ⌘, and pick the provider |
+| Keep me signed in / sign out / rename / remove an account | Settings → the account's ⋯ menu |
+| Duplicate a bubble | Settings → ⋯ → *Add another bubble*, or right-click the bubble header |
+| Hide or show one provider | Settings → ⋯ → *Hide this provider's bubble* / *Show …* |
 | Retire a duplicate head | Right-click **that** bubble's header → *Remove this bubble* |
+| Collapse every bubble | Click anywhere outside them, or Escape inside a bubble |
 | Zoom a chat | − / percentage / + in the chat toolbar; the percentage resets to 100% |
 | Resize a chat or account list | Drag any edge or corner |
 | Choose the side a chat opens on | Right-click the bubble header → *Chat opens* |
@@ -197,9 +199,9 @@ Bublr's design rule: **the only thing it may store is what a browser would have 
 
 - **No passwords, one-time codes or QR tokens.** Bublr never reads the login form, never proxies a request
   and never stores a credential. There is no keychain item and no vault.
-- **Keep me signed in** is a per-account switch on the sign-in surface. Off means a private in-memory
-  session: the provider's cookies disappear when Bublr quits.
-- **Sign out and clear session** in an account's context menu erases the stored cookies immediately.
+- **Keep me signed in** is a per-account switch on the sign-in surface in Settings. Off means a private
+  in-memory session: the provider's cookies disappear when Bublr quits.
+- **Sign out and clear session**, in an account's ⋯ menu in Settings, erases the stored cookies immediately.
 - **No telemetry, no analytics, no update pings.** The only network traffic is the provider pages you added
   (plus any Custom URL you configure).
 - **The state file holds no secrets**, and the self-test asserts that: it encodes the workspace and fails if
@@ -210,13 +212,15 @@ Full threat model and reporting process: [SECURITY.md](SECURITY.md).
 ## How it works
 
 ```
-Welcome ──▶ ProviderBubble (one NSPanel per provider, always on top)
-                │
-                ├─ Account rows ──▶ SignInSurface ──▶ WebSession (WKWebView, one per account)
-                │                                          │
-                └─ ChatSurface ◀────────── the provider's own page, untouched
-                                                           │
-                              DOM selectors + title polling ─┘ (sign-in state, unread counts)
+Settings ──▶ provider + account management, SignInSurface (sheets)
+   │
+   └─ adds ──▶ WebSession (WKWebView, one per account)
+                    │
+ProviderBubble (one NSPanel per provider, always on top)
+   │
+   └─ chat rows ──▶ ChatSurface ◀── the provider's own page, untouched
+                                        │
+                 DOM selectors + title polling ─┘ (sign-in state, unread counts)
 ```
 
 Three decisions explain most of the code:
@@ -249,10 +253,10 @@ make release    # Release build zipped into dist/Bublr-<version>.zip
 | Flag | Effect |
 | --- | --- |
 | `--seed-demo` | Telegram (3 accounts), Messenger (2), Zalo (1) with unread counts |
-| `--demo-signin <provider>` | One bubble with a fresh account, straight into that provider's sign-in |
+| `--demo-signin <provider>` | Settings open with a fresh account, straight into that provider's sign-in |
 | `--probe <url> [seconds]` | Loads a URL off-screen and prints its DOM/auth state as JSON |
 | `--selftest` | Runs the whole check suite, writes `/tmp/bublr-selftest.json` |
-| `--render-ui <dir>` | Renders bubble, chat, sign-in and welcome surfaces to PNGs |
+| `--render-ui <dir>` | Renders bubble, chat, sign-in and settings surfaces to PNGs |
 
 ### Environment
 
@@ -288,7 +292,7 @@ Sources/
   Model/    ProviderCatalog (URLs, detection JS) · Workspace (state + persistence) · Anchoring (chat geometry)
   Web/      WebSession (one WKWebView per account) · WebSessionStore
   Overlay/  OverlayController (borderless NSPanel layout, drag, edge resize, collapse, clamping)
-  UI/       SwiftUI surfaces: bubble, sign-in, chat, welcome, design system
+  UI/       SwiftUI surfaces: bubble, sign-in, chat, settings, design system
   App/      App delegate, menu bar, ⌥⌘B hotkey, self-test, offline renderer
 Tools/      window-probe (panel facts) · ocr-probe (reads text out of a rendered PNG)
 Support/    Info.plist (LSUIElement — no Dock icon)

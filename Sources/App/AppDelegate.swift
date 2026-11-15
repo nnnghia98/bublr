@@ -12,7 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     private(set) var updates: UpdateController!
     private var statusBar: StatusBarController!
     private var hotKey: GlobalHotKey?
-    private var welcomeWindow: NSWindow?
+    private var settingsWindow: NSWindow?
+    /// The provider the settings window shows. Kept here rather than in the view's `@State` because a
+    /// bubble or the chat banner may ask for a provider while the window is already open.
+    private(set) var settingsProvider: ProviderID?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -41,30 +44,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
             demoSignIn(ProviderID(rawValue: raw) ?? .telegram)
         } else if CommandLine.arguments.contains("--seed-demo") {
             seedDemo()
-        } else {
-            seedFirstRunIfNeeded()
         }
 
         if !workspace.hasOnboarded {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                self?.showWelcome()
+                self?.showSettings()
             }
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// Sign-in fixture: one provider bubble with one fresh account, ready for a real sign-in.
+    /// Sign-in fixture: settings open on one provider with a fresh account waiting for the real page.
     private func demoSignIn(_ provider: ProviderID) {
         workspace.hasOnboarded = true
         let account = workspace.addAccount(provider: provider, label: "")
         workspace.beginSignIn(account: account, method: provider.spec.defaultMethod)
         workspace.saveNow()
         NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let head = self?.workspace.bubble(for: provider) else { return }
-            self?.overlay.focusDetail(bubbleID: head.id)
-        }
+        showSettings(provider: provider)
     }
 
     /// Layout fixture for visual QA: real provider bubbles with representative accounts.
@@ -87,16 +85,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        workspace.saveNow()
-    }
-
-    // MARK: First run
-
-    private func seedFirstRunIfNeeded() {
-        guard workspace.bubbles.isEmpty, workspace.accounts.isEmpty else { return }
-        for provider in [ProviderID.telegram, .messenger, .zalo] {
-            workspace.addBubble(for: provider)
-        }
         workspace.saveNow()
     }
 
@@ -123,6 +111,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         overlay.sync()
     }
 
+    /// Reveal a provider's bubble and get out of its way: the settings window is where it was arranged.
+    func openBubble(_ provider: ProviderID) {
+        workspace.addBubble(for: provider)
+        workspace.setCollapsed(false, for: provider)
+        showBubbles()
+        overlay.sync()
+        if let head = workspace.bubble(for: provider) {
+            overlay.focusDetail(bubbleID: head.id)
+        }
+        closeSettings()
+    }
+
     func removeBubble(_ provider: ProviderID) {
         workspace.removeBubble(for: provider)
         overlay.sync()
@@ -135,20 +135,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         overlay.sync()
     }
 
+    /// The one way to link an account: add it, then let the settings sheet run the provider's own sign-in.
     func addAccount(_ provider: ProviderID, method: LoginMethod? = nil) {
         let account = workspace.addAccount(provider: provider, label: "")
         workspace.beginSignIn(account: account, method: method ?? provider.spec.defaultMethod)
-        workspace.setAccountStatus(id: account.id, status: .needsSignIn)
-        showBubbles()
-        overlay.sync()
-        closeWelcome()
-        if let bubble = workspace.bubble(for: provider) {
-            if bubble.collapsed { workspace.setCollapsed(false, forBubble: bubble.id) }
-            NSApp.activate(ignoringOtherApps: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.overlay.focusDetail(bubbleID: bubble.id)
-            }
-        }
+        showSettings(provider: provider)
+    }
+
+    /// Sign an existing account in again — a lapsed session, or a row that never finished signing in.
+    func signIn(accountID: UUID) {
+        guard let account = workspace.account(id: accountID) else { return }
+        workspace.beginSignIn(account: account, method: account.provider.spec.defaultMethod)
+        showSettings(provider: account.provider)
+    }
+
+    func cancelSignIn(accountID: UUID) {
+        sessions.existing(accountID: accountID)?.purpose = .chatting
+        workspace.cancelSignIn(accountID: accountID)
+    }
+
+    func selectSettingsProvider(_ provider: ProviderID?) {
+        guard settingsProvider != provider else { return }
+        settingsProvider = provider
+        objectWillChange.send()
     }
 
     func resetLayout() {
@@ -161,41 +170,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
         NSApp.terminate(nil)
     }
 
-    // MARK: Welcome
+    /// A bubble panel is hosted with the workspace and sessions only, so its SwiftUI views have no
+    /// `AppDelegate` in the environment. These two entry points are how a bubble reaches Settings.
+    static func presentSettings(provider: ProviderID? = nil) {
+        (NSApp.delegate as? AppDelegate)?.showSettings(provider: provider)
+    }
 
-    func showWelcome() {
-        if let window = welcomeWindow {
+    static func presentSignIn(accountID: UUID) {
+        (NSApp.delegate as? AppDelegate)?.signIn(accountID: accountID)
+    }
+
+    // MARK: Settings
+
+    func showSettings(provider: ProviderID? = nil) {
+        if let provider { selectSettingsProvider(provider) }
+        if let window = settingsWindow {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let root = WelcomeView()
+        let root = SettingsView()
             .environmentObject(workspace)
+            .environmentObject(sessions)
             .environmentObject(self)
         let hosting = NSHostingController(rootView: root)
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .fullSizeContentView]
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.title = "Bublr"
+        window.title = "Bublr Settings"
         window.isReleasedWhenClosed = false
         window.backgroundColor = .windowBackgroundColor
         window.delegate = self
-        window.setContentSize(NSSize(width: 800, height: 660))
+        window.setContentSize(NSSize(width: 900, height: 660))
         window.center()
-        welcomeWindow = window
+        settingsWindow = window
         overlay.setHiddenByUser(true)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    func closeWelcome() {
-        welcomeWindow?.close()
+    func closeSettings() {
+        settingsWindow?.close()
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === welcomeWindow else { return }
-        welcomeWindow = nil
+        guard (notification.object as? NSWindow) === settingsWindow else { return }
+        // A sheet cannot outlive its window, so whatever was half-signed-in is cancelled with it.
+        for pending in workspace.pendingSignIns {
+            cancelSignIn(accountID: pending.account.id)
+        }
+        settingsWindow = nil
         workspace.markOnboarded()
         overlay.setHiddenByUser(false)
     }

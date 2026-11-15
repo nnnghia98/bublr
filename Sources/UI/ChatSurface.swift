@@ -197,9 +197,7 @@ struct ChatSurface: View {
                 .foregroundStyle(.primary)
             Spacer()
             Button("Sign in again") {
-                let method = account.provider.spec.defaultMethod
-                sessions.existing(accountID: account.id)?.purpose = .signingIn
-                workspace.beginSignIn(account: account, method: method, bubbleID: headID)
+                AppDelegate.presentSignIn(accountID: account.id)
             }
             .buttonStyle(.borderless)
             .font(.bubbleCaption(11))

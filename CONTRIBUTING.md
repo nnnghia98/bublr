@@ -44,7 +44,7 @@ make render      # renders the real surfaces to /tmp/bublr-ui for a visual check
 the web session layer, or `Sources/Model/Provider.swift` — it asserts that each provider still shows its
 own sign-in surface. It needs network access; CI runs only `make test`.
 
-For UI changes, attach a screenshot. `make render` writes PNGs of the bubble, chat, sign-in and welcome
+For UI changes, attach a screenshot. `make render` writes PNGs of the bubble, chat, sign-in and settings
 surfaces without needing screen-recording permission, which makes before/after images easy.
 
 ## Architecture in one screen
@@ -55,7 +55,7 @@ surfaces without needing screen-recording permission, which makes before/after i
 | `Sources/Model/Workspace.swift` | Observable state — bubbles, accounts, sign-in queue, layout metrics — and its JSON persistence |
 | `Sources/Web/WebSession.swift` | One `WKWebView` per account, auth probing, unread from `document.title`, storage policy |
 | `Sources/Overlay/OverlayController.swift` | Borderless always-on-top panels: layout, clamping, drag, collapse, position persistence |
-| `Sources/UI/` | SwiftUI surfaces: provider bubble, sign-in, chat, welcome, design system |
+| `Sources/UI/` | SwiftUI surfaces: provider bubble, sign-in, chat, settings, design system |
 | `Sources/App/` | App delegate, menu bar, global hotkey, self-test harness, offline UI renderer |
 
 Rules of thumb:

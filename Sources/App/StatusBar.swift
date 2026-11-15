@@ -48,46 +48,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
-        let addBubble = NSMenuItem(title: "Add provider bubble", action: nil, keyEquivalent: "")
-        let addBubbleMenu = NSMenu()
-        for provider in ProviderCatalog.available where provider.id != .custom {
-            let item = NSMenuItem(title: provider.name, action: #selector(addBubble(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = provider.id.rawValue
-            if app.workspace.bubble(for: provider.id) != nil {
-                item.state = .on
-            }
-            addBubbleMenu.addItem(item)
-        }
-        addBubble.submenu = addBubbleMenu
-        menu.addItem(addBubble)
-
-        // A provider that already has a bubble can get a second head over the same accounts.
-        let duplicateBubble = NSMenuItem(title: "Duplicate provider bubble", action: nil, keyEquivalent: "")
-        let duplicateMenu = NSMenu()
-        for provider in ProviderCatalog.available where app.workspace.bubble(for: provider.id) != nil {
-            let item = NSMenuItem(title: provider.name, action: #selector(duplicateBubble(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = provider.id.rawValue
-            duplicateMenu.addItem(item)
-        }
-        duplicateBubble.submenu = duplicateMenu
-        duplicateBubble.isEnabled = !duplicateMenu.items.isEmpty
-        menu.addItem(duplicateBubble)
-
-        let addAccount = NSMenuItem(title: "New account…", action: nil, keyEquivalent: "")
-        let addAccountMenu = NSMenu()
-        for provider in ProviderCatalog.available {
-            let item = NSMenuItem(title: provider.name, action: #selector(addAccount(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = provider.id.rawValue
-            addAccountMenu.addItem(item)
-        }
-        addAccount.submenu = addAccountMenu
-        menu.addItem(addAccount)
-
-        menu.addItem(.separator())
-
         // Updates sit above settings: an available version is the one item a person should not have to hunt for.
         let updateTitle = app.updates?.availableVersion.map { "Update to Bublr \($0)…" } ?? "Check for Updates…"
         let checkNow = NSMenuItem(title: updateTitle, action: #selector(checkForUpdates), keyEquivalent: "")
@@ -154,26 +114,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         app.workspace.setCollapseOnOutsideClick(!app.workspace.collapseOnOutsideClick)
     }
 
-    @objc private func addBubble(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let id = ProviderID(rawValue: raw) else { return }
-        if app.workspace.bubble(for: id) == nil {
-            app.addBubble(id)
-        } else {
-            app.removeBubble(id)
-        }
-    }
-
-    @objc private func duplicateBubble(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let id = ProviderID(rawValue: raw) else { return }
-        app.duplicateBubble(id)
-    }
-
-    @objc private func addAccount(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let id = ProviderID(rawValue: raw) else { return }
-        app.addAccount(id)
-    }
-
-    @objc private func showSettings() { app.showWelcome() }
+    @objc private func showSettings() { app.showSettings() }
 
     @objc private func resetLayout() { app.resetLayout() }
 
