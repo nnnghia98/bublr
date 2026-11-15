@@ -35,7 +35,7 @@ already trust keeps doing the talking.
 
 *Screenshots use sample data from `--seed-demo` / `--render-ui`; no real accounts.*
 
-> **Status:** 1.0.0. The app is used daily by its author, and `make test` covers the parts that break
+> **Status:** 1.0.1. The app is used daily by its author, and `make test` covers the parts that break
 > silently. There is no notarised binary yet — until there is, a downloaded build needs a right-click to open.
 
 ## Contents

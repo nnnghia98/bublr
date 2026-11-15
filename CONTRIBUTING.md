@@ -30,7 +30,7 @@ A Debug build carries the bundle id `com.nnnghia.bublr.dev`, not the release one
 every bundle it produces with LaunchServices, so an identical id would let a `.build/` Debug copy answer to
 the installed app's name and launch in its place. The state file is keyed by path, not bundle id, so both
 builds still share one workspace. `make` also stamps the commit into `Info.plist`; the menu bar shows it as
-`Bublr 1.0.0 · <hash>`, which is the quickest way to tell whether the running copy is the one you just built.
+`Bublr 1.0.1 · <hash>`, which is the quickest way to tell whether the running copy is the one you just built.
 
 ## Before you open a pull request
 
@@ -199,7 +199,7 @@ Branches are short-lived: one concern each, and they are deleted when the PR mer
 ## Releasing
 
 Version lives in `Support/Info.plist` (`CFBundleShortVersionString`, `CFBundleVersion`). The menu bar shows it
-as `Bublr 1.0.0 · <hash>`, so a bump is visible in the running app.
+as `Bublr 1.0.1 · <hash>`, so a bump is visible in the running app.
 
 1. Bump both plist keys, and add a `CHANGELOG.md` section for the new version.
 2. `make test` — the full self-test; the CI gate runs the same thing.

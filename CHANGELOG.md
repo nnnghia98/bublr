@@ -4,6 +4,16 @@ All notable changes to Bublr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-11-15
+
+Re-release that exercises the in-app updater against a real GitHub release. The application code is identical to
+1.0.0: no behaviour changed, and nothing here needs to be read as a fix or a feature.
+
+### Changed
+
+- Version 1.0.1 (build 2). An installed 1.0.0 build now finds a newer release, so the menu bar offers
+  *Update to Bublr 1.0.1…* and *Install and Relaunch* performs a real download, checksum check and bundle swap.
+
 ## [1.0.0] — 2026-11-06
 
 First release with the shape the app is meant to keep.
