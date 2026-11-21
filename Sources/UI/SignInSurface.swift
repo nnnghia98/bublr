@@ -16,6 +16,8 @@ struct SignInSurface: View {
     @State private var success = false
     @State private var didComplete = false
     @State private var authState: WebSession.AuthState = .unknown
+    @State private var isLoading = false
+    @State private var loadError: String?
 
     /// `session` is created on appear, so its state is sampled rather than observed through a wrapper view.
     private let ticker = Timer.publish(every: 0.6, on: .main, in: .common).autoconnect()
@@ -77,6 +79,8 @@ struct SignInSurface: View {
         .onAppear(perform: start)
         .onReceive(ticker) { _ in
             authState = session?.authState ?? .unknown
+            isLoading = session?.isLoading ?? false
+            loadError = session?.loadError
         }
     }
 
@@ -228,11 +232,16 @@ struct SignInSurface: View {
                             .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                     )
                     .overlay(alignment: .top) {
-                        if session.isLoading {
+                        if isLoading {
                             ProgressView(value: max(0.05, session.progress))
                                 .progressViewStyle(.linear)
                                 .tint(spec.tint)
                                 .scaleEffect(x: 1, y: 0.7, anchor: .top)
+                        }
+                    }
+                    .overlay {
+                        if let error = pageLoadError {
+                            errorCard(error)
                         }
                     }
             } else {
@@ -246,6 +255,30 @@ struct SignInSurface: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var pageLoadError: String? { isLoading ? nil : loadError }
+
+    private func errorCard(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(spec.tint)
+            Text("The page didn't load")
+                .font(.bubbleTitle(13))
+            Text(message)
+                .font(.bubbleCaption(10.5))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, 24)
+            Button("Try again") { session?.reload() }
+                .buttonStyle(PrimaryButtonStyle(tint: spec.tint))
+        }
+        .padding(18)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.regularMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+        .padding(20)
     }
 
     // MARK: Status
@@ -270,12 +303,12 @@ struct SignInSurface: View {
                 .lineLimit(1)
                 .help(failed ? failureText : "")
             Spacer(minLength: 4)
-            if failed {
+            if failed && pageLoadError == nil {
                 Button("Retry") { session?.reload() }
                     .buttonStyle(.plain)
                     .font(.bubbleCaption(10.5).weight(.semibold))
                     .foregroundStyle(spec.tint)
-            } else if !success {
+            } else if !failed && !success {
                 Button("I've signed in") { complete() }
                     .buttonStyle(.plain)
                     .font(.bubbleCaption(10.5).weight(.semibold))
@@ -286,10 +319,10 @@ struct SignInSurface: View {
         .frame(height: 18)
     }
 
-    private var failed: Bool { authState == .error }
+    private var failed: Bool { pageLoadError != nil || authState == .error }
 
     private var failureText: String {
-        "Can't reach \(providerName) — retry"
+        pageLoadError != nil ? "Couldn't load \(providerName)" : "Can't reach \(providerName) — retry"
     }
 
     private var statusText: String {

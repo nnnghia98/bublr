@@ -4,6 +4,12 @@ All notable changes to Bublr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Sign-in shows why a provider page failed to load and lets you try again without closing the sheet.
+
 ## [1.0.1] — 2026-11-15
 
 Re-release that exercises the in-app updater against a real GitHub release. The application code is identical to
