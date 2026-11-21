@@ -139,6 +139,7 @@ struct ProviderCollapsedBubble: View {
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.15), value: hover)
         .help("\(provider.spec.name) — click to open, drag to move")
+        .collapsedBubbleAccessibility(name: provider.spec.name, unread: unread, open: onExpand)
     }
 }
 
@@ -158,6 +159,7 @@ struct AccountCollapsedBubble: View {
                 .offset(x: 3, y: -1)
         }
         .help("\(account.label) — click to open, drag to move")
+        .collapsedBubbleAccessibility(name: account.label, unread: account.unread, open: onExpand)
     }
 }
 

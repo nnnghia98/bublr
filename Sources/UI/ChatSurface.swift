@@ -136,6 +136,8 @@ struct ChatSurface: View {
             }
             .buttonStyle(.plain)
             .help("Actual size")
+            .accessibilityLabel("Zoom \(Zoom.label(account.zoom))")
+            .accessibilityHint("Resets to actual size")
             BubbleIconButton(systemName: "plus.magnifyingglass", size: 24, help: "Zoom in") {
                 applyZoom(Zoom.bigger(account.zoom))
             }

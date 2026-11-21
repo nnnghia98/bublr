@@ -4,6 +4,15 @@ All notable changes to Bublr are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **VoiceOver can reach a collapsed bubble, and reads controls by their purpose.** A collapsed bubble had no
+  accessible element at all; it is now a button that says its provider and unread count. Icon-only buttons were
+  read by the system's guess from the symbol ("Refresh" for Reload) and now say what their tooltip says. The
+  selected provider and sign-in method are announced as selected.
+
 ## [1.0.1] — 2026-11-15
 
 Re-release that exercises the in-app updater against a real GitHub release. The application code is identical to

@@ -229,6 +229,8 @@ struct BubbleIconButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help(help)
+        // Otherwise VoiceOver reads the system's guess from the symbol, which need not match the tooltip.
+        .accessibilityLabel(help)
     }
 }
 
@@ -281,6 +283,7 @@ struct UnreadBadge: View {
                 .background(Capsule().fill(Color(red: 0.98, green: 0.26, blue: 0.30)))
                 .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 0.8))
                 .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                .accessibilityLabel("\(count) unread")
         }
     }
 }
@@ -315,6 +318,8 @@ struct StatusDot: View {
             .fill(color)
             .frame(width: 6, height: 6)
             .shadow(color: color.opacity(0.8), radius: 3)
+            // Colour alone; the text beside it says the same thing.
+            .accessibilityHidden(true)
     }
 }
 
@@ -370,6 +375,17 @@ struct BubbleBackground: View {
 }
 
 extension View {
+    /// A collapsed bubble is drawn shapes under an AppKit drag handle, which VoiceOver cannot see or press.
+    /// This makes it one button that says what it is and how much is waiting.
+    func collapsedBubbleAccessibility(name: String, unread: Int, open: @escaping () -> Void) -> some View {
+        self
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(unread > 0 ? "\(name), \(unread) unread" : name)
+            .accessibilityHint("Opens the chat")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default, open)
+    }
+
     func bubbleBackground(corner: CGFloat = 26, tint: Color? = nil) -> some View {
         self
             .background(BubbleBackground(corner: corner, tint: tint))

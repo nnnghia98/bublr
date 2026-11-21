@@ -156,6 +156,7 @@ struct SignInSurface: View {
                     .overlay(Capsule().strokeBorder(Color.primary.opacity(selected ? 0 : 0.08)))
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer(minLength: 0)
         }
@@ -370,5 +371,6 @@ struct SkinnyCloseButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .help("Cancel")
+        .accessibilityLabel("Cancel")
     }
 }

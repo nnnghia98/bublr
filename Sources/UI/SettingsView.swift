@@ -242,6 +242,7 @@ struct SettingsView: View {
                     .menuIndicator(.hidden)
                     .frame(width: 26)
                     .help("Bubble options")
+                    .accessibilityLabel("Bubble options")
                 }
 
                 Spacer(minLength: 8)
@@ -390,6 +391,7 @@ private struct ProviderSidebarRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var status: String {
@@ -466,6 +468,7 @@ private struct AccountSettingsRow: View {
         .menuIndicator(.hidden)
         .frame(width: 26)
         .help("Account options")
+        .accessibilityLabel("Account options")
     }
 
     @ViewBuilder
