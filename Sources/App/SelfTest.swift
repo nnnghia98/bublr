@@ -42,6 +42,7 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         persistenceTests()
         updateTests()
         overlayTests()
+        accessibilityTests()
         print("\nLive provider pages (real network, real WKWebView, off-screen)")
         liveWebTests { [weak self] in
             self?.summary()
@@ -1082,6 +1083,44 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("\(spec.name): sign-in surface rendered", surface, evidence)
         check("\(spec.name): detector sees a sign-in page", outcome.authState == "signedOut", "state=\(outcome.authState)")
         check("\(spec.name): title reported", !outcome.title.isEmpty, outcome.title)
+    }
+
+    // MARK: Accessibility
+
+    /// What VoiceOver is told, read back from the real views. A label that is only a tooltip, or a control
+    /// drawn under an AppKit handle, looks fine on screen and is silent here.
+    private func accessibilityTests() {
+        let collapsed = accessibilityLabels(of: ProviderCollapsedBubble(provider: .zalo, unread: 7, onExpand: {}),
+                                            size: CGSize(width: 64, height: 64))
+        check("a collapsed bubble names its provider and unread count", collapsed.contains("Zalo, 7 unread"),
+              "\(collapsed)")
+        let button = accessibilityLabels(of: BubbleIconButton(systemName: "arrow.clockwise", help: "Reload") {},
+                                         size: CGSize(width: 40, height: 40))
+        check("an icon button is read by its purpose, not its symbol", button.contains("Reload"), "\(button)")
+    }
+
+    private func accessibilityLabels<Content: View>(of content: Content, size: CGSize) -> [String] {
+        // SwiftUI builds its accessibility tree only once an assistive client has asked for one.
+        let app = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        let host = NSHostingView(rootView: content.frame(width: size.width, height: size.height))
+        host.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderBack(nil)
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        var labels: [String] = []
+        var queue: [Any] = [host]
+        var visited = 0
+        while !queue.isEmpty, visited < 200 {
+            visited += 1
+            guard let element = queue.removeFirst() as? NSAccessibilityElementProtocol else { continue }
+            if let label = (element as AnyObject).accessibilityLabel?(), !label.isEmpty { labels.append(label) }
+            queue.append(contentsOf: (element as AnyObject).accessibilityChildren?() ?? [])
+        }
+        window.orderOut(nil)
+        return labels
     }
 
     private func firstDragHandle(_ view: NSView?) -> DragHandleView? {
