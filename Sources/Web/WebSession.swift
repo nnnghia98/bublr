@@ -90,7 +90,10 @@ final class WebSession: NSObject, ObservableObject {
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.customUserAgent = WebSession.userAgent
+        // Web Inspector can read a signed-in page and its cookies, so only a Debug build offers it.
+        #if DEBUG
         webView.isInspectable = true
+        #endif
         // Applied before the first load so a reopened chat never flashes at 100% and then snaps.
         pageZoom = account.zoom
         webView.pageZoom = account.zoom
