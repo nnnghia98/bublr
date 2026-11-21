@@ -239,6 +239,16 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("a private account keeps nothing on disk",
               !ephemeral.webView.configuration.websiteDataStore.isPersistent)
 
+        let uiDelegate = ephemeral.webView.uiDelegate
+        check("chat pages can open a file picker",
+              uiDelegate?.responds(to: #selector(WKUIDelegate.webView(_:runOpenPanelWith:initiatedByFrame:completionHandler:))) == true)
+        check("chat pages can show an alert",
+              uiDelegate?.responds(to: #selector(WKUIDelegate.webView(_:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:))) == true)
+        check("chat pages can ask for confirmation",
+              uiDelegate?.responds(to: #selector(WKUIDelegate.webView(_:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:))) == true)
+        check("chat pages can prompt for text",
+              uiDelegate?.responds(to: #selector(WKUIDelegate.webView(_:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:))) == true)
+
         let privacyURL = temporaryStoreURL("privacy")
         let privacy = Workspace(storeURL: privacyURL)
         privacy.addBubble(for: .telegram)

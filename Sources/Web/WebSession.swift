@@ -403,11 +403,88 @@ extension WebSession: WKUIDelegate {
 
     func webView(
         _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = !parameters.allowsDirectories
+
+        NSApp.activate(ignoringOtherApps: true)
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+        if let window = webView.window {
+            panel.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(panel.runModal())
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
         runJavaScriptAlertPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping () -> Void
     ) {
-        completionHandler()
+        showPageDialog(message, from: frame, in: webView.window) { _ in
+            completionHandler()
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        showPageDialog(message, from: frame, in: webView.window, allowsCancel: true) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        input.stringValue = defaultText ?? ""
+        showPageDialog(prompt, from: frame, in: webView.window, allowsCancel: true, input: input) { response in
+            completionHandler(response == .alertFirstButtonReturn ? input.stringValue : nil)
+        }
+    }
+
+    private func showPageDialog(
+        _ message: String,
+        from frame: WKFrameInfo,
+        in window: NSWindow?,
+        allowsCancel: Bool = false,
+        input: NSTextField? = nil,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        let alert = NSAlert()
+        let host = frame.securityOrigin.host
+        alert.messageText = host.isEmpty ? "A web page says" : "\(host) says"
+        alert.informativeText = message
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        if allowsCancel { alert.addButton(withTitle: "Cancel") }
+        if let input {
+            alert.accessoryView = input
+            alert.window.initialFirstResponder = input
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            completion(alert.runModal())
+        }
     }
 }
 
