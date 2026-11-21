@@ -56,6 +56,33 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         check("unread zero for plain title", WebSession.unreadCount(inTitle: "Telegram") == 0)
         check("unread guard rejects 5 digits", WebSession.unreadCount(inTitle: "(99999) Telegram") == 0)
 
+        let downloadDir = temporaryStoreURL("chat-download").deletingLastPathComponent()
+        do {
+            let files = FileManager.default
+            try files.createDirectory(at: downloadDir, withIntermediateDirectories: true)
+            defer { try? files.removeItem(at: downloadDir) }
+            let first = WebSession.Downloads.destination(for: "../incoming/report.pdf", in: downloadDir)
+            check("a chat attachment keeps its filename, not its path",
+                  first == downloadDir.appendingPathComponent("report.pdf"))
+            try Data([1]).write(to: first, options: .withoutOverwriting)
+            let next = WebSession.Downloads.destination(for: "report.pdf", in: downloadDir)
+            check("an existing attachment is not overwritten", next.lastPathComponent == "report (2).pdf")
+            let third = WebSession.Downloads.destination(for: "report.pdf", in: downloadDir, reserved: [next])
+            check("simultaneous downloads get different destinations", third.lastPathComponent == "report (3).pdf")
+            check("an empty attachment name stays inside Downloads",
+                  WebSession.Downloads.destination(for: "..", in: downloadDir) == downloadDir.appendingPathComponent("Download"))
+            func response(_ disposition: String) -> HTTPURLResponse {
+                HTTPURLResponse(url: URL(string: "https://chat.example/file")!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                headerFields: ["Content-Disposition": disposition])!
+            }
+            check("an attachment header is recognized regardless of case",
+                  WebSession.Downloads.isAttachment(response("Attachment; filename=\"report.txt\"")))
+            check("an inline filename containing 'attachment' is not a download",
+                  !WebSession.Downloads.isAttachment(response("inline; filename=\"attachment.txt\"")))
+        } catch {
+            check("chat download filename fixture", false, error.localizedDescription)
+        }
+
         let workspace = Workspace(storeURL: temporaryStoreURL("model"))
         let bubble = workspace.addBubble(for: .telegram)
         check("bubble added", workspace.bubble(for: .telegram) != nil)
