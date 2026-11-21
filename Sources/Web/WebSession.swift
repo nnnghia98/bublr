@@ -373,6 +373,28 @@ extension WebSession: WKNavigationDelegate {
         handle(error: error)
     }
 
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        decisionHandler(purpose == .chatting && action.shouldPerformDownload ? .download : .allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        if purpose == .chatting && (!response.canShowMIMEType || Downloads.isAttachment(response.response)) {
+            decisionHandler(.download)
+        } else {
+            decisionHandler(response.canShowMIMEType ? .allow : .cancel)
+        }
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = Downloads.shared
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = Downloads.shared
+    }
+
     private func handle(error: Error) {
         let ns = error as NSError
         // A cancelled navigation is normal: providers redirect constantly during sign-in.
@@ -469,5 +491,60 @@ final class WebSessionStore: ObservableObject {
     func discard(accountID: UUID) {
         drop(accountID: accountID)
         eraseData(accountID: accountID)
+    }
+}
+
+extension WebSession {
+    @MainActor
+    final class Downloads: NSObject, WKDownloadDelegate {
+        static let shared = Downloads()
+        // WebKit needs a nonexistent file. Reserve its name across chats until WebKit finishes writing it.
+        private var destinations: [ObjectIdentifier: URL] = [:]
+
+        nonisolated static func isAttachment(_ response: URLResponse) -> Bool {
+            let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+            let disposition = header?.components(separatedBy: ";").first?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return disposition?.lowercased() == "attachment"
+        }
+
+        nonisolated static func destination(for suggestedName: String, in directory: URL, reserved: [URL] = []) -> URL {
+            let leaf = suggestedName.components(separatedBy: CharacterSet(charactersIn: "/\\")).last ?? ""
+            let name = leaf.components(separatedBy: .controlCharacters).joined()
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespacesAndNewlines))
+            var url = directory.appendingPathComponent(name.isEmpty ? "Download" : name, isDirectory: false)
+            let stem = url.deletingPathExtension().lastPathComponent
+            let ext = url.pathExtension.isEmpty ? "" : ".\(url.pathExtension)"
+            var number = 2
+            while (try? FileManager.default.attributesOfItem(atPath: url.path)) != nil
+                    || reserved.contains(where: { $0.lastPathComponent.caseInsensitiveCompare(url.lastPathComponent) == .orderedSame }) {
+                url = directory.appendingPathComponent("\(stem) (\(number))\(ext)", isDirectory: false)
+                number += 1
+            }
+            return url
+        }
+
+        func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                      completionHandler: @escaping (URL?) -> Void) {
+            do {
+                let folder = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask,
+                                                         appropriateFor: nil, create: true)
+                let url = Self.destination(for: suggestedFilename, in: folder, reserved: Array(destinations.values))
+                destinations[ObjectIdentifier(download)] = url
+                completionHandler(url)
+            } catch {
+                NSLog("Bublr: Downloads folder unavailable")
+                completionHandler(nil)
+            }
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            destinations.removeValue(forKey: ObjectIdentifier(download))
+        }
+
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            destinations.removeValue(forKey: ObjectIdentifier(download))
+            let error = error as NSError
+            NSLog("Bublr: chat download failed (%@ %ld)", error.domain, error.code)
+        }
     }
 }
