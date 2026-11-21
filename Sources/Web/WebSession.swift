@@ -49,7 +49,7 @@ final class WebSession: NSObject, ObservableObject {
     var onTitleChange: ((Int) -> Void)?
     var onSignedIn: (() -> Void)?
     var onSessionLost: (() -> Void)?
-    var customURL: URL?
+    let startURL: URL
 
     private var authTimer: Timer?
     private var titlePoll: Timer?
@@ -62,6 +62,7 @@ final class WebSession: NSObject, ObservableObject {
         self.accountID = account.id
         self.provider = account.provider
         self.spec = account.provider.spec
+        self.startURL = account.customURL.flatMap(ProviderCatalog.customChatURL) ?? account.provider.spec.homeURL
         self.purpose = purpose
 
         let config = WKWebViewConfiguration()
@@ -97,9 +98,6 @@ final class WebSession: NSObject, ObservableObject {
 
         controller.add(WeakMessageHandler(self), name: "bublr")
 
-        if let custom = account.customURL, let url = URL(string: custom) {
-            customURL = url
-        }
         loadStartPage()
         startTitlePoll()
         startAuthPoll()
@@ -114,10 +112,6 @@ final class WebSession: NSObject, ObservableObject {
     var specForProvider: ProviderSpec { spec }
 
     // MARK: Loading
-
-    var startURL: URL {
-        customURL ?? spec.homeURL
-    }
 
     private func loadStartPage() {
         var request = URLRequest(url: startURL)
@@ -219,9 +213,7 @@ final class WebSession: NSObject, ObservableObject {
     }
 
     private func probeAuth() {
-        guard let host = webView.url?.host, !host.isEmpty else { return }
-        let allowed = spec.hosts.isEmpty || spec.hosts.contains { host == $0 || host.hasSuffix("." + $0) }
-        guard allowed else { return }
+        guard spec.includes(webView.url, accountURL: startURL) else { return }
 
         webView.evaluateJavaScript(spec.authProbeJS) { [weak self] value, _ in
             guard let self, let string = value as? String,
@@ -241,6 +233,8 @@ final class WebSession: NSObject, ObservableObject {
         case .signedIn, .app:
             signedOutStreak = 0
             if purpose == .signingIn {
+                // An unfamiliar login screen can look just like an app. Let its owner confirm instead.
+                if provider == .custom && state == .app { return }
                 handleSignedIn()
             } else if !isSignedIn {
                 isSignedIn = true
@@ -339,6 +333,20 @@ final class WebSession: NSObject, ObservableObject {
 // MARK: - Delegates
 
 extension WebSession: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences,
+                 decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        // Leave sign-in redirects and form submissions in the session; only route links out of a chat.
+        if provider == .custom, purpose == .chatting, !action.shouldPerformDownload,
+           action.navigationType == .linkActivated, action.targetFrame?.isMainFrame == true,
+           let url = action.request.url, !spec.includes(url, accountURL: startURL),
+           ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel, preferences)
+        } else {
+            decisionHandler(purpose == .chatting && action.shouldPerformDownload ? .download : .allow, preferences)
+        }
+    }
+
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
         loadError = nil
@@ -386,15 +394,15 @@ extension WebSession: WKUIDelegate {
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
-        forNavigationAction navigationAction: WKNavigationAction,
+        for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         guard let url = navigationAction.request.url else { return nil }
         if navigationAction.targetFrame == nil {
             // Links that ask for a new window are usually articles, not chat: send them to the browser.
-            if spec.hosts.isEmpty || spec.hosts.contains(where: { url.host == $0 || (url.host?.hasSuffix("." + $0) ?? false) }) {
+            if spec.includes(url, accountURL: startURL) {
                 webView.load(URLRequest(url: url))
-            } else {
+            } else if provider != .custom || ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
                 NSWorkspace.shared.open(url)
             }
         }

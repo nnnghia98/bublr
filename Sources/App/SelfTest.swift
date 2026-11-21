@@ -192,6 +192,34 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         }
 
         let catalog = ProviderCatalog.all
+        let address = "https://chat.example:8443/rooms/work"
+        check("custom chat accepts an HTTPS address with a path and port",
+              ProviderCatalog.customChatURL("  \(address)  ")?.absoluteString == address)
+        check("custom chat rejects a missing host, other schemes, and embedded sign-in details",
+              ["", "chat.example", "https:///chat", "http://chat.example", "file:///chat",
+               "javascript:void(0)", "https://two hosts.example", "https://user@chat.example"]
+                .allSatisfy { ProviderCatalog.customChatURL($0) == nil })
+        let customStore = temporaryStoreURL("custom")
+        let customWorkspace = Workspace(storeURL: customStore)
+        let first = customWorkspace.addAccount(provider: .custom, label: "Work", customURL: address)
+        let otherAddress = "https://other.example/"
+        let other = customWorkspace.addAccount(provider: .custom, label: "Friends", customURL: otherAddress)
+        customWorkspace.saveNow()
+        let restored = Workspace(storeURL: customStore)
+        check("custom accounts keep their own address and name after a restart",
+              restored.account(id: first.id)?.customURL == address && restored.account(id: first.id)?.label == "Work"
+                && restored.account(id: other.id)?.customURL == otherAddress)
+        restored.setDrill(first.id, for: .custom)
+        check("the custom bubble opens the chosen account", restored.bubble(for: .custom)?.drilledAccountID == first.id)
+        let home = URL(string: address)!
+        let custom = ProviderCatalog.customSpec
+        check("only this custom account's HTTPS host is in-app",
+              custom.includes(URL(string: "https://CHAT.example/chat"), accountURL: home)
+                && !custom.includes(URL(string: otherAddress), accountURL: home)
+                && !custom.includes(URL(string: "https://news.chat.example"), accountURL: home)
+                && !custom.includes(URL(string: "http://chat.example"), accountURL: home))
+        try? FileManager.default.removeItem(at: customStore.deletingLastPathComponent())
+
         check("catalog covers Telegram, Messenger, Zalo",
               catalog.contains { $0.id == .telegram } && catalog.contains { $0.id == .messenger } && catalog.contains { $0.id == .zalo })
         check("telegram allows QR and password",
@@ -212,7 +240,7 @@ final class SelfTestRunner: NSObject, NSApplicationDelegate {
         let core: [ProviderID] = [.telegram, .messenger, .zalo]
         check("core providers are offered", core.allSatisfy { wanted in ProviderCatalog.available.contains { $0.id == wanted } })
         check("messenger is password-only", ProviderCatalog.messengerSpec.loginMethods == [.credentials])
-        check("every provider uses https", catalog.allSatisfy { $0.homeURL.scheme == "https" })
+        check("every built-in provider uses https", catalog.filter { $0.id != .custom }.allSatisfy { $0.homeURL.scheme == "https" })
         check("every provider has an auth probe", catalog.allSatisfy { $0.authProbeJS.contains("signedOut") })
         check("every login method has guidance",
               catalog.allSatisfy { spec in spec.loginMethods.allSatisfy { spec.loginHint[$0]?.isEmpty == false } })

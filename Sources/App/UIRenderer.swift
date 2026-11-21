@@ -55,6 +55,17 @@ enum UIRenderer {
                 .frame(width: 900, height: 660),
                size: CGSize(width: 900, height: 660), name: "settings", dir: dir)
 
+        if workspace.accounts(for: .custom).isEmpty {
+            workspace.addAccount(provider: .custom, label: "Work", customURL: "https://chat.example.com")
+            workspace.addAccount(provider: .custom, label: "Friends", customURL: "https://friends.example.org")
+        }
+        app.selectSettingsProvider(.custom)
+        for adding in [false, true] {
+            render(SettingsView(addingCustomAccount: adding)
+                    .environmentObject(workspace).environmentObject(sessions).environmentObject(app),
+                   size: CGSize(width: 900, height: 660), name: adding ? "settings-custom-add" : "settings-custom", dir: dir)
+        }
+
         var privateAccount = Account(provider: .telegram, label: "Personal")
         privateAccount.keepSignedIn = false
         workspace.beginSignIn(account: privateAccount, method: .qr)
