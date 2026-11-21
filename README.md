@@ -182,7 +182,7 @@ carries conversations and nothing else: no plus button, no account menu.
 | **Slack** | Password | Standard web client |
 | **Instagram** | Password | Standard web client |
 | **Microsoft Teams** | Password | Standard web client |
-| **Custom** | Any URL | Give it a name and a URL; works with any provider whose web client suits WebKit |
+| **Custom web chat** | Site's own sign-in | In Settings, give it a name and an HTTPS URL; works with web chats that support WebKit |
 | ~~WhatsApp~~ | — | Not offered: `web.whatsapp.com` needs Chromium. Verified against the live page, not assumed |
 
 Adding a provider is a `ProviderSpec` entry plus a live test — see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -11,9 +11,9 @@ struct SettingsView: View {
     @EnvironmentObject var workspace: Workspace
     @EnvironmentObject var app: AppDelegate
 
-    private var providers: [ProviderSpec] {
-        ProviderCatalog.available.filter { $0.id != .custom }
-    }
+    @State var addingCustomAccount = false
+
+    private var providers: [ProviderSpec] { ProviderCatalog.available }
 
     /// The selection is the app delegate's, not `@State`: opening settings for a provider from a bubble
     /// or the menu bar has to move it, and a view that has already appeared cannot be re-initialised.
@@ -34,6 +34,7 @@ struct SettingsView: View {
             footer
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: selected) { addingCustomAccount = false }
         .sheet(item: pendingSignIn) { pending in
             SignInSurface(pending: pending, embedded: true)
                 .frame(width: 440, height: 640)
@@ -158,9 +159,15 @@ struct SettingsView: View {
                 .frame(height: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    if accounts.isEmpty {
+                    if spec.id == .custom && addingCustomAccount {
+                        CustomAccountForm(cancel: { addingCustomAccount = false }) { name, url in
+                            addingCustomAccount = false
+                            app.addAccount(.custom, label: name, customURL: url)
+                        }
+                    }
+                    if accounts.isEmpty && !addingCustomAccount {
                         emptyAccounts(spec)
-                    } else {
+                    } else if !accounts.isEmpty {
                         HStack(alignment: .firstTextBaseline) {
                             Text(accounts.count == 1 ? "1 account" : "\(accounts.count) accounts")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
@@ -182,6 +189,14 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func addAccount(_ provider: ProviderID) {
+        if provider == .custom {
+            addingCustomAccount = true
+        } else {
+            app.addAccount(provider)
+        }
+    }
+
     private func detailHeader(_ spec: ProviderSpec, accountCount: Int) -> some View {
         let heads = workspace.bubbles(for: spec.id).count
         return VStack(alignment: .leading, spacing: 12) {
@@ -196,11 +211,12 @@ struct SettingsView: View {
                 }
                 Spacer(minLength: 8)
                 Button {
-                    app.addAccount(spec.id)
+                    addAccount(spec.id)
                 } label: {
                     Label("Add account", systemImage: "plus")
                 }
                 .buttonStyle(PrimaryButtonStyle(tint: spec.tint))
+                .disabled(addingCustomAccount)
             }
 
             HStack(spacing: 8) {
@@ -275,14 +291,15 @@ struct SettingsView: View {
                 .opacity(0.9)
             Text("No accounts yet")
                 .font(.bubbleTitle(13))
-            Text("Link an account and \(spec.name)'s own sign-in page opens here — QR or password, whichever it supports.")
+            Text(spec.id == .custom ? "Give your web chat a name and an HTTPS address, then sign in on its own page."
+                 : "Link an account and \(spec.name)'s own sign-in page opens here — QR or password, whichever it supports.")
                 .font(.bubbleCaption(10.5))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
             Button {
-                app.addAccount(spec.id)
+                addAccount(spec.id)
             } label: {
                 Label("Add account", systemImage: "plus")
             }
@@ -342,6 +359,52 @@ struct SettingsView: View {
         .overlay(alignment: .top) {
             Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 1)
         }
+    }
+}
+
+private struct CustomAccountForm: View {
+    let cancel: () -> Void
+    let add: (String, URL) -> Void
+
+    @State private var name = ""
+    @State private var address = ""
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        let url = ProviderCatalog.customChatURL(address)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("New custom account")
+                .font(.bubbleTitle(13))
+            Grid(alignment: .leading) {
+                GridRow {
+                    Text("Name")
+                    TextField("Name", text: $name, prompt: Text("e.g. Work chat"))
+                        .focused($nameFocused)
+                }
+                GridRow {
+                    Text("Chat URL")
+                    TextField("Chat URL", text: $address, prompt: Text(verbatim: "https://chat.example.com"))
+                }
+            }
+            if !address.isEmpty && url == nil {
+                Label("Enter an HTTPS URL with a host and no username or password.", systemImage: "exclamationmark.circle")
+                    .font(.bubbleCaption(11))
+                    .foregroundStyle(.orange)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: cancel)
+                Button("Continue to sign-in") {
+                    if let url { add(name, url) }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || url == nil)
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.04)))
+        .onAppear { nameFocused = true }
     }
 }
 
@@ -412,6 +475,13 @@ private struct AccountSettingsRow: View {
 
     private var spec: ProviderSpec { account.provider.spec }
 
+    private var status: String {
+        if let host = account.customURL.flatMap(ProviderCatalog.customChatURL)?.host {
+            return "\(host) · \(account.statusText)"
+        }
+        return account.statusText
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             AccountAvatar(account: account, size: 34)
@@ -421,7 +491,7 @@ private struct AccountSettingsRow: View {
                     .lineLimit(1)
                 HStack(spacing: 4) {
                     StatusDot(color: account.status == .needsSignIn ? .orange : .green)
-                    Text(account.statusText)
+                    Text(status)
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

@@ -28,7 +28,9 @@ struct SignInSurface: View {
     }
 
     private var spec: ProviderSpec { pending.account.provider.spec }
-    private var providerName: String { spec.name }
+    private var providerName: String {
+        pending.account.customURL.flatMap(ProviderCatalog.customChatURL)?.host ?? spec.name
+    }
 
     var body: some View {
         ZStack {

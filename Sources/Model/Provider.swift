@@ -118,6 +118,12 @@ struct ProviderSpec: Identifiable, Hashable {
     }
 
     func supports(_ method: LoginMethod) -> Bool { loginMethods.contains(method) }
+
+    func includes(_ url: URL?, accountURL: URL) -> Bool {
+        guard let url, let host = url.host?.lowercased(), !host.isEmpty else { return false }
+        if id == .custom { return url.scheme?.lowercased() == "https" && host == accountURL.host?.lowercased() }
+        return hosts.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
 }
 
 enum ProviderCatalog {
@@ -148,6 +154,14 @@ enum ProviderCatalog {
 
     static func spec(for id: ProviderID) -> ProviderSpec {
         all.first { $0.id == id } ?? customSpec
+    }
+
+    static func customChatURL(_ address: String) -> URL? {
+        let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: address), url.scheme?.lowercased() == "https",
+              let host = url.host, !host.isEmpty, host.rangeOfCharacter(from: .urlHostAllowed.inverted) == nil,
+              url.user == nil, url.password == nil else { return nil }
+        return url
     }
 
     static func json(_ values: [String]) -> String {
@@ -343,19 +357,18 @@ enum ProviderCatalog {
         name: "Custom web chat",
         shortName: "Custom",
         tagline: "Any chat that runs on the web",
-        homeURL: URL(string: "https://web.telegram.org/k/")!,
+        homeURL: URL(string: "about:blank")!,
         hosts: [],
-        loginMethods: [.credentials, .qr],
+        loginMethods: [.credentials],
         defaultMethod: .credentials,
         tintHex: 0x8E8E93,
         tintHex2: 0x636366,
         signedInSelectors: [],
         loggedOutSelectors: ["input[type=password]"],
-        loggedOutPhrases: ["Log in", "Sign in"],
+        loggedOutPhrases: [],
         loggedOutHosts: [],
         loginHint: [
-            .credentials: "Paste the address of any web chat in Settings, then sign in normally.",
-            .qr: "Scan the QR code the website shows."
+            .credentials: "Sign in on the site's own page. When you see your chats, choose “I've signed in”."
         ],
         credentialsSwitchJS: nil
     )

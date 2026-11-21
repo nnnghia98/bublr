@@ -136,8 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject, NSWi
     }
 
     /// The one way to link an account: add it, then let the settings sheet run the provider's own sign-in.
-    func addAccount(_ provider: ProviderID, method: LoginMethod? = nil) {
-        let account = workspace.addAccount(provider: provider, label: "")
+    func addAccount(_ provider: ProviderID, method: LoginMethod? = nil, label: String = "", customURL: URL? = nil) {
+        let account = workspace.addAccount(provider: provider, label: label, customURL: customURL?.absoluteString)
         workspace.beginSignIn(account: account, method: method ?? provider.spec.defaultMethod)
         showSettings(provider: provider)
     }
